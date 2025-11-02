@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package trip;
+
+service TripService {
+  rpc CreateTrip(CreateTripRequest) returns (TripResponse);
+  rpc GetTripById(TripId) returns (TripResponse);
+  rpc CancelTrip(TripId) returns (TripResponse);
+  rpc AcceptTrip(AcceptTripRequest) returns (TripResponse);
+  rpc StartTrip(TripId) returns (TripResponse);
+  rpc CompleteTrip(TripId) returns (TripResponse);
+}
+
+message CreateTripRequest {
+  string userId = 1;
+  double pickupLatitude = 2;
+  double pickupLongitude = 3;
+  double destinationLatitude = 4;
+  double destinationLongitude = 5;
+}
+
+message AcceptTripRequest {
+  string id = 1;
+  string driverId = 2;
+}
+
+message TripId {
+  string id = 1;
+}
+
+message TripResponse {
+  string id = 1;
+  string userId = 2;
+  optional string driverId = 3;
+  string status = 4;
+}

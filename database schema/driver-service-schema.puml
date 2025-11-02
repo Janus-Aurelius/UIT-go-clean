@@ -1,0 +1,52 @@
+@startuml Driver Service Database Schema
+!theme plain
+skinparam backgroundColor white
+skinparam classBackgroundColor lightyellow
+skinparam classBorderColor black
+
+title Driver Service Database Schema
+
+class DriverProfile {
+  + userId: String (PK)
+  + name: String
+  + email: String
+  + phone: String
+  + vehicleType: VehicleType
+  + licensePlate: String
+  + licenseNumber: String
+  + status: DriverStatus
+  + rating: Decimal
+  + balance: Decimal
+  + lastLat: Float?
+  + lastLng: Float?
+  + createdAt: DateTime
+  + updatedAt: DateTime
+}
+
+enum VehicleType {
+  MOTOBIKE
+  BIKE
+}
+
+enum DriverStatus {
+  OFFLINE
+  ONLINE
+  BUSY
+}
+
+DriverProfile ||--|| VehicleType : vehicleType
+DriverProfile ||--|| DriverStatus : status
+
+note right of DriverProfile
+  - Primary key: userId
+  - Phone: max 20 characters
+  - Default vehicle: MOTOBIKE
+  - Default status: OFFLINE
+  - Rating: Decimal(3,2) default 5.00
+  - Balance: Decimal(10,2) default 0.00
+  - Location tracking: lastLat, lastLng
+  - Auto-generated timestamps
+  - Maps to "driver_profile" table
+end note
+
+@enduml

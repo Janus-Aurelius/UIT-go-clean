@@ -1,0 +1,43 @@
+@startuml Trip Service Database Schema
+!theme plain
+skinparam backgroundColor white
+skinparam classBackgroundColor lightblue
+skinparam classBorderColor black
+
+title Trip Service Database Schema
+
+class Trip {
+  + id: String (PK)
+  + userId: String
+  + driverId: String?
+  + status: TripStatus
+  + pickupLatitude: Float?
+  + pickupLongitude: Float?
+  + destinationLatitude: Float?
+  + destinationLongitude: Float?
+  + driverLatitude: Float?
+  + driverLongitude: Float?
+  + createdAt: DateTime
+  + updatedAt: DateTime
+}
+
+enum TripStatus {
+  FINDING_DRIVER
+  DRIVER_ACCEPTED
+  ONGOING
+  COMPLETED
+  CANCELED
+}
+
+Trip ||--|| TripStatus : status
+
+note right of Trip
+  - Primary key: id (cuid)
+  - Foreign keys: userId, driverId
+  - Default status: FINDING_DRIVER
+  - Tracks pickup and destination coordinates
+  - Tracks driver location during trip
+  - Auto-generated timestamps
+end note
+
+@enduml

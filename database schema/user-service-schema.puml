@@ -1,0 +1,28 @@
+@startuml User Service Database Schema
+!theme plain
+skinparam backgroundColor white
+skinparam classBackgroundColor lightgreen
+skinparam classBorderColor black
+
+title User Service Database Schema
+
+class UserProfile {
+  + userId: String (PK)
+  + fullName: String
+  + phone: String
+  + email: String
+  + balance: Decimal
+  + createdAt: DateTime
+  + updatedAt: DateTime
+}
+
+note right of UserProfile
+  - Primary key: userId
+  - Phone: max 15 characters
+  - Email: max 255 characters
+  - Balance: Decimal(10,2) default 0.00
+  - Auto-generated timestamps
+  - Maps to "UserProfile" table
+end note
+
+@enduml

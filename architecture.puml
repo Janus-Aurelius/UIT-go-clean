@@ -1,0 +1,178 @@
+@startuml UIT-GO System Architecture
+' White background and black text everywhere
+skinparam BackgroundColor #FFFFFF
+skinparam DefaultFontColor #000000
+skinparam ArrowColor #000000
+skinparam ArrowFontColor #000000
+skinparam NoteFontColor #000000
+skinparam LegendFontColor #000000
+skinparam PackageFontColor #000000
+skinparam NodeFontColor #000000
+skinparam ComponentFontColor #000000
+skinparam DatabaseFontColor #000000
+skinparam ActorFontColor #000000
+skinparam CloudFontColor #000000
+skinparam PortFontColor #000000
+
+title UIT-GO Microservice Architecture
+
+!define EXTERNAL_COLOR #87CEEB
+!define API_COLOR #98FB98
+!define SERVICE_COLOR #FFB6C1
+!define DATABASE_COLOR #DDA0DD
+!define CACHE_COLOR #F0E68C
+
+package "External Services" {
+  cloud "Clerk Auth" as clerk <<External>> EXTERNAL_COLOR
+}
+
+package "Client Layer" {
+  actor "Mobile App\n(User)" as mobile_user
+  actor "Mobile App\n(Driver)" as mobile_driver
+  actor "Web Client" as web_client
+}
+
+package "API Gateway Layer" {
+  node "API Gateway" as gateway <<NestJS>> API_COLOR {
+    component "Auth Controller\n/api/v1/auth" as auth_ctrl
+    component "User Controller\n/api/v1/users" as user_ctrl
+    component "Driver Controller\n/api/v1/drivers" as driver_ctrl
+    component "Trip Controller\n/api/v1/trips" as trip_ctrl
+    component "Clerk Auth Guard" as auth_guard
+    
+    port "HTTP:3000" as gateway_port
+  }
+}
+
+package "Microservices Layer" {
+  
+  node "User Service" as user_service <<NestJS + gRPC>> SERVICE_COLOR {
+    component "User Module" as user_module
+    component "Prisma Client" as user_prisma
+    port "gRPC:50051" as user_port
+  }
+  
+  node "Driver Service" as driver_service <<NestJS + gRPC>> SERVICE_COLOR {
+    component "Driver Module" as driver_module
+    component "Location Module" as location_module
+    component "Redis Client" as redis_client
+    component "Prisma Client" as driver_prisma
+    port "gRPC:50052" as driver_port
+  }
+  
+  node "Trip Service" as trip_service <<NestJS + gRPC>> SERVICE_COLOR {
+    component "Trip Module" as trip_module
+    component "Prisma Client" as trip_prisma
+    port "gRPC:50053" as trip_port
+  }
+}
+
+package "Data Layer" {
+  database "PostgreSQL\nuser_db" as user_db <<Database>> DATABASE_COLOR
+  database "PostgreSQL\ndriver_db" as driver_db <<Database>> DATABASE_COLOR
+  database "PostgreSQL\ntrip_db" as trip_db <<Database>> DATABASE_COLOR
+  
+  node "Redis" as redis <<Cache + Geospatial>> CACHE_COLOR {
+    component "Geospatial Index" as geo_index
+    component "Cache Store" as cache_store
+    port "TCP:6379" as redis_port
+  }
+}
+
+package "Infrastructure" {
+  node "Docker Network\nuit-go-network" as docker_network
+  component "Health Checks" as health_checks
+  component "Service Discovery" as service_discovery
+}
+
+package "Shared Libraries" {
+  package "libs/shared-client" as shared_client {
+    component "gRPC Clients" as grpc_clients
+    component "Proto Definitions\n- user.proto\n- driver.proto\n- trip.proto" as proto_files
+    component "Service Constants" as service_constants
+  }
+  
+  package "libs/shared-types" as shared_types {
+    component "Common Types" as common_types
+    component "DTOs" as dtos
+  }
+}
+
+' Client connections
+mobile_user --> gateway_port : "HTTPS Requests"
+mobile_driver --> gateway_port : "HTTPS Requests"
+web_client --> gateway_port : "HTTPS Requests"
+
+' API Gateway internal flow
+gateway_port --> auth_guard
+auth_guard --> clerk : "Token Validation"
+auth_guard --> auth_ctrl
+auth_guard --> user_ctrl
+auth_guard --> driver_ctrl
+auth_guard --> trip_ctrl
+
+' API Gateway to Services (gRPC)
+auth_ctrl --> user_port : "gRPC: CreateUserProfile"
+auth_ctrl --> driver_port : "gRPC: CreateDriver"
+user_ctrl --> user_port : "gRPC: GetUser"
+driver_ctrl --> driver_port : "gRPC: GetDriver,\nSearchNearbyDrivers"
+trip_ctrl --> trip_port : "gRPC: Trip Operations"
+
+' Inter-service communication
+trip_service --> driver_port : "gRPC: SearchNearbyDrivers"
+trip_service --> user_port : "gRPC: GetUser"
+driver_service --> user_port : "gRPC: GetUser"
+
+' Service to Database connections
+user_service --> user_db : "Prisma ORM"
+driver_service --> driver_db : "Prisma ORM"
+trip_service --> trip_db : "Prisma ORM"
+
+' Redis connections
+driver_service --> redis_port : "Location Updates\nGeospatial Queries"
+location_module --> geo_index
+redis_client --> cache_store
+
+' Shared library usage
+gateway --> shared_client : "uses"
+user_service --> shared_types : "uses"
+driver_service --> shared_types : "uses"
+trip_service --> shared_types : "uses"
+
+' Docker network
+docker_network ..> gateway
+docker_network ..> user_service
+docker_network ..> driver_service
+docker_network ..> trip_service
+docker_network ..> redis
+docker_network ..> user_db
+docker_network ..> driver_db
+docker_network ..> trip_db
+
+' Health checks
+health_checks ..> gateway : "monitors"
+health_checks ..> user_service : "monitors"
+health_checks ..> driver_service : "monitors"
+health_checks ..> trip_service : "monitors"
+health_checks ..> redis : "monitors"
+
+note top of gateway : "Entry point for all client requests\nHandles authentication, routing,\nand protocol translation (HTTP → gRPC)"
+
+note right of redis : "Geospatial indexing for driver locations\nPOINT: lat,lng coordinates\nGEORADIUS: nearby driver search\nwithin configurable radius (5km)"
+
+note bottom of trip_service : "Orchestrates trip lifecycle:\n1. Create trip request\n2. Search nearby drivers\n3. Assign driver\n4. Track trip status\n5. Handle completion/cancellation\n\ngRPC Methods:\n• CreateTrip()\n• GetTripById()\n• CancelTrip()\n• AcceptTrip()\n• StartTrip()\n• CompleteTrip()"
+
+note bottom of driver_service : "Manages driver profiles and locations:\n- Real-time location updates\n- Driver status (ONLINE/OFFLINE/BUSY)\n- Geospatial search capabilities\n- Vehicle information\n\ngRPC Methods:\n• CreateDriver()\n• GetDriver()\n• UpdateLocation()\n• UpdateStatus()\n• SearchNearbyDrivers()"
+
+note bottom of user_service : "User profile management:\n- Registration and authentication\n- Profile data (name, email, phone)\n- Account balance tracking\n\ngRPC Methods:\n• CreateUserProfile()\n• GetUser()"
+
+legend right
+  |Color| Type |
+  |<#87CEEB>| External Services |
+  |<#98FB98>| API Gateway |
+  |<#FFB6C1>| Microservices |
+  |<#DDA0DD>| Databases |
+  |<#F0E68C>| Cache/Storage |
+endlegend
+
+@enduml
