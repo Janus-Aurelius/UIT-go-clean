@@ -27,3 +27,16 @@ export const driverGrpcOptions: GrpcOptions = {
     url: process.env['DRIVER_GRPC_URL'],
   },
 };
+
+// ---- Trip SERVICE ----
+export const tripGrpcOptions: GrpcOptions = {
+  transport: Transport.GRPC,
+  options: {
+    protoPath: join(
+      __dirname,
+      '../../libs/shared-client/src/grpc/proto/trip.proto'
+    ),
+    package: GRPC_SERVICE.TRIP.PACKAGE,
+    url: process.env['TRIP_GRPC_URL'],
+  },
+};

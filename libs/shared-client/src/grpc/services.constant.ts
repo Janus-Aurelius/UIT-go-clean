@@ -18,6 +18,16 @@ export const GRPC_SERVICE = {
       SEARCH_NEARBY: 'SearchNearbyDrivers',
     },
   },
-  TRIP: 'TripService',
+  TRIP: {
+    PACKAGE: 'trip',
+    NAME: 'TripService',
+    METHODS: {
+      CREATE: 'CreateTrip',
+      GET_BY_ID: 'GetTripById',
+      CANCEL: 'CancelTrip',
+      ACCEPT: 'AcceptTrip',
+      START: 'StartTrip',
+      COMPLETE: 'CompleteTrip',
+    },
+  },
 } as const;
-
