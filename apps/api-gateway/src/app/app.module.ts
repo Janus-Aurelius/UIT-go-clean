@@ -6,6 +6,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from '../micro-service/auth/auth.module';
 import { DriverModule } from '../micro-service/driver/driver.module';
+import { TripModule } from '../micro-service/trip/trip.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { DriverModule } from '../micro-service/driver/driver.module';
       validationSchema: Joi.object({
         CLERK_SECRET_KEY: Joi.string().required(),
         USER_GRPC_URL: Joi.string().required(),
+        TRIP_GRPC_URL: Joi.string().required(),
       }),
     }),
 
@@ -22,6 +24,8 @@ import { DriverModule } from '../micro-service/driver/driver.module';
     AuthModule,
 
     DriverModule,
+
+    TripModule,
   ],
   controllers: [AppController],
   providers: [AppService],
