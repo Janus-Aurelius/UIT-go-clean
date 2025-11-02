@@ -9,11 +9,9 @@ import { TripService } from './trip.service';
     ClientsModule.registerAsync([
       {
         name: GRPC_SERVICE.TRIP.NAME,
-        useFactory: async () => {
-          return {
-            ...tripGrpcOptions,
-          };
-        },
+        useFactory: async () => ({
+          ...tripGrpcOptions,
+        }),
       },
     ]),
   ],
