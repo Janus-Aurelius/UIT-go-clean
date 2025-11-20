@@ -23,7 +23,7 @@ export const GRPC_SERVICE = {
     NAME: 'TripService',
     METHODS: {
       CREATE: 'CreateTrip',
-      GET_BY_ID: 'GetTripById',
+      DETAIL: 'GetTripById',
       CANCEL: 'CancelTrip',
       ACCEPT: 'AcceptTrip',
       START: 'StartTrip',

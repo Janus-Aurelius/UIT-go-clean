@@ -143,7 +143,7 @@ const config = {
       "value": "prisma-client-js"
     },
     "output": {
-      "value": "C:\\Sem1_Year3_Projects\\UIT-GO\\UIT-go\\apps\\trip-service\\generated\\prisma",
+      "value": "C:\\Users\\tuana\\Programming\\Web\\Projects\\UIT-go\\apps\\trip-service\\generated\\prisma",
       "fromEnvVar": null
     },
     "config": {
@@ -161,7 +161,7 @@ const config = {
       }
     ],
     "previewFeatures": [],
-    "sourceFilePath": "C:\\Sem1_Year3_Projects\\UIT-GO\\UIT-go\\apps\\trip-service\\prisma\\schema.prisma",
+    "sourceFilePath": "C:\\Users\\tuana\\Programming\\Web\\Projects\\UIT-go\\apps\\trip-service\\prisma\\schema.prisma",
     "isCustomOutput": true
   },
   "relativeEnvPaths": {
@@ -175,7 +175,6 @@ const config = {
     "db"
   ],
   "activeProvider": "postgresql",
-  "postinstall": false,
   "inlineDatasources": {
     "db": {
       "url": {

@@ -3,7 +3,10 @@ import { CreateTripRequest } from '@uit-go/shared-types';
 import { TripService } from './trip.service';
 //import { CurrentUser } from '../../common/decorator/current-user.decorator';
 
-@Controller('trips')
+@Controller({
+  version: '1',
+  path: 'trips',
+})
 export class TripController {
   constructor(private readonly tripService: TripService) {}
 
