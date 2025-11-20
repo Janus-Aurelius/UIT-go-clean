@@ -23,7 +23,7 @@ export class TripController {
     return await this.tripService.createTrip(data);
   }
 
-  @GrpcMethod(GRPC_SERVICE.TRIP.NAME, GRPC_SERVICE.TRIP.METHODS.GET_BY_ID)
+  @GrpcMethod(GRPC_SERVICE.TRIP.NAME, GRPC_SERVICE.TRIP.METHODS.DETAIL)
   getTripById(data: TripId) {
     return this.tripService.getTripById(data.id);
   }
