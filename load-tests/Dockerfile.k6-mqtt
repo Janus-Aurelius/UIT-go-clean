@@ -1,0 +1,42 @@
+# Multi-stage build for k6 with MQTT extension
+# Purpose: Build custom k6 binary with xk6-mqtt extension for native MQTT testing
+# Usage: docker build -f Dockerfile.k6-mqtt -t k6-mqtt:latest .
+
+FROM golang:alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache git ca-certificates
+
+# Install xk6 (k6 extension builder)
+RUN go install go.k6.io/xk6/cmd/xk6@latest
+
+# Build k6 with xk6-mqtt extension
+# This creates a custom binary that includes native MQTT support
+RUN xk6 build \
+    --with github.com/pmalhaire/xk6-mqtt@latest \
+    --output /k6
+
+# Verify the binary was built successfully
+RUN /k6 version
+
+# ============================================================================
+# Runtime stage - minimal image with just the k6 binary
+# ============================================================================
+FROM alpine:3.18
+
+# Install runtime dependencies
+RUN apk add --no-cache ca-certificates
+
+# Copy k6 binary from builder stage
+COPY --from=builder /k6 /usr/local/bin/k6
+
+# Set working directory for test scripts
+WORKDIR /scripts
+
+# Health check - verify k6 is working
+HEALTHCHECK --interval=30s --timeout=3s \
+    CMD k6 version || exit 1
+
+# Default entrypoint
+ENTRYPOINT ["k6"]
+CMD ["run"]

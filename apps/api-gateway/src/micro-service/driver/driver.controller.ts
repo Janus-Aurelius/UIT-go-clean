@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Query, Delete } from '@nestjs/common';
 import { DriverStatusEnum, NearbyQuery } from '@uit-go/shared-types';
 import { DriverService } from './driver.service';
 
@@ -14,9 +14,40 @@ export class DriverController {
     return (await this.driverService.searchNearBy(query)).list;
   }
 
+  @Get()
+  async findAll(
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+    @Query('status') status?: string
+  ) {
+    return this.driverService.findAll({ page, limit, status });
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string) {
     return this.driverService.findOne(id);
+  }
+
+  @Patch(':id')
+  async update(
+    @Param('id') id: string,
+    @Body()
+    data: {
+      name?: string;
+      email?: string;
+      phone?: string;
+      vehicleType?: string;
+      licensePlate?: string;
+      licenseNumber?: string;
+      balance?: number;
+    }
+  ) {
+    return this.driverService.updateProfile({ userId: id, ...data });
+  }
+
+  @Delete(':id')
+  async delete(@Param('id') id: string) {
+    return this.driverService.deleteDriver(id);
   }
 
   @Patch('/:id/status')

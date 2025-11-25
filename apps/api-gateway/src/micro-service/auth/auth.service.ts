@@ -1,8 +1,12 @@
 import clerkClient from '@clerk/clerk-sdk-node';
 import { Inject, Injectable } from '@nestjs/common';
 import { ClientGrpc } from '@nestjs/microservices';
-import { DriverServiceClient, GRPC_SERVICE, UserServiceClient } from '@uit-go/shared-client';
-import { VehicleTypeEnum } from '@uit-go/shared-types';
+import {
+  DriverServiceClient,
+  GRPC_SERVICE,
+  UserServiceClient,
+} from '@uit-go/shared-client';
+import { VehicleTypeEnum, DriverProfileResponse } from '@uit-go/shared-types';
 import { firstValueFrom } from 'rxjs';
 
 @Injectable()
@@ -73,8 +77,8 @@ export class AuthService {
       password: user.password,
     });
 
-    const profile = await firstValueFrom(
-      this.driverService.createDriver({
+    const profile = (await firstValueFrom(
+      this.driverService.CreateDriver({
         name: user.name,
         phone: user.phone,
         email: user.email,
@@ -83,7 +87,7 @@ export class AuthService {
         licensePlate: user.licensePlate,
         licenseNumber: user.licenseNumber,
       })
-    );
+    )) as DriverProfileResponse;
 
     return {
       userId: clerk.id,

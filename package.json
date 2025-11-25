@@ -5,6 +5,7 @@
   "scripts": {},
   "private": true,
   "dependencies": {
+    "@clerk/backend": "^2.23.2",
     "@clerk/clerk-sdk-node": "^4.13.23",
     "@grpc/grpc-js": "^1.14.0",
     "@grpc/proto-loader": "^0.8.0",
@@ -19,6 +20,7 @@
     "class-validator": "^0.14.2",
     "dotenv": "^17.2.3",
     "joi": "^18.0.1",
+    "mqtt": "^5.14.1",
     "protoc": "^33.0.0",
     "redis": "^5.9.0",
     "reflect-metadata": "^0.1.13",

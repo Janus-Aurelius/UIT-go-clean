@@ -259,7 +259,9 @@ export class TripService implements OnModuleInit {
       data: { status: 'COMPLETED' },
     });
 
-    // Update driver status back to online when trip is completed
+    // Release driver: Update driver status back to ONLINE when trip is completed
+    // The driver service will now accept location updates again since status is ONLINE
+    // This allows the driver to move to a new location after completing the trip
     if (trip.driverId) {
       try {
         const updateStatusRequest: UpdateStatusRequest = {
@@ -270,12 +272,147 @@ export class TripService implements OnModuleInit {
         await firstValueFrom(
           this.driverService.updateStatus(updateStatusRequest)
         );
+
+        console.log(`Driver ${trip.driverId} released and set to ONLINE. Can now accept location updates.`);
       } catch (error) {
         console.error('Error updating driver status to online:', error);
       }
     }
 
     return trip;
+  }
+
+  async getTrips(request: {
+    userId?: string;
+    driverId?: string;
+    status?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    trips: TripResponse[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
+    const page = request.page || 1;
+    const limit = request.limit || 10;
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (request.userId) where.userId = request.userId;
+    if (request.driverId) where.driverId = request.driverId;
+    if (request.status) where.status = request.status;
+
+    const [trips, total] = await this.prisma.$transaction([
+      this.prisma.trip.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: {
+          createdAt: 'desc',
+        },
+      }),
+      this.prisma.trip.count({ where }),
+    ]);
+
+    const tripsWithDriverInfo = await Promise.all(
+      trips.map(async (trip) => {
+        let driverInfo = undefined;
+
+        if (trip.driverId) {
+          try {
+            const driverProfile = await firstValueFrom(
+              this.driverService.getDriver({ userId: trip.driverId })
+            );
+
+            driverInfo = {
+              name: driverProfile.name,
+              phone: driverProfile.phone,
+              vehicleType: driverProfile.vehicleType,
+              licensePlate: driverProfile.licensePlate,
+              rating: driverProfile.rating,
+            };
+          } catch (error) {
+            console.error('Error fetching driver info:', error);
+          }
+        }
+
+        return {
+          id: trip.id,
+          userId: trip.userId,
+          driverId: trip.driverId,
+          status: trip.status,
+          pickupLatitude: trip.pickupLatitude,
+          pickupLongitude: trip.pickupLongitude,
+          destinationLatitude: trip.destinationLatitude,
+          destinationLongitude: trip.destinationLongitude,
+          driverLatitude: trip.driverLatitude,
+          driverLongitude: trip.driverLongitude,
+          driverInfo,
+        };
+      })
+    );
+
+    return {
+      trips: tripsWithDriverInfo,
+      total,
+      page,
+      limit,
+    };
+  }
+
+  async updateTrip(request: {
+    id: string;
+    destinationLatitude?: number;
+    destinationLongitude?: number;
+  }): Promise<TripResponse> {
+    const updateData: any = {};
+
+    if (request.destinationLatitude !== undefined)
+      updateData.destinationLatitude = request.destinationLatitude;
+    if (request.destinationLongitude !== undefined)
+      updateData.destinationLongitude = request.destinationLongitude;
+
+    const trip = await this.prisma.trip.update({
+      where: {
+        id: request.id,
+      },
+      data: updateData,
+    });
+
+    let driverInfo = undefined;
+
+    if (trip.driverId) {
+      try {
+        const driverProfile = await firstValueFrom(
+          this.driverService.getDriver({ userId: trip.driverId })
+        );
+
+        driverInfo = {
+          name: driverProfile.name,
+          phone: driverProfile.phone,
+          vehicleType: driverProfile.vehicleType,
+          licensePlate: driverProfile.licensePlate,
+          rating: driverProfile.rating,
+        };
+      } catch (error) {
+        console.error('Error fetching driver info:', error);
+      }
+    }
+
+    return {
+      id: trip.id,
+      userId: trip.userId,
+      driverId: trip.driverId,
+      status: trip.status,
+      pickupLatitude: trip.pickupLatitude,
+      pickupLongitude: trip.pickupLongitude,
+      destinationLatitude: trip.destinationLatitude,
+      destinationLongitude: trip.destinationLongitude,
+      driverLatitude: trip.driverLatitude,
+      driverLongitude: trip.driverLongitude,
+      driverInfo,
+    };
   }
 
   async findNearestDriver(tripId: string): Promise<string | null> {

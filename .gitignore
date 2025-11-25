@@ -38,6 +38,46 @@ testem.log
 # System Files
 .DS_Store
 Thumbs.db
+# See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
+
+# compiled output
+dist
+tmp
+out-tsc
+
+# dependencies
+node_modules
+
+# IDEs and editors
+/.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.claude/
+
+# misc
+/.sass-cache
+/connect.lock
+/coverage
+/libpeerconnection.log
+npm-debug.log
+yarn-error.log
+testem.log
+/typings
+
+# System Files
+.DS_Store
+Thumbs.db
 
 .nx/cache
 .nx/workspace-data
@@ -47,3 +87,9 @@ Thumbs.db
 .env
 
 /generated/prisma
+/clerk-cleanup
+
+# k6 custom binaries (built with xk6-mqtt extension)
+/load-tests/k6-mqtt
+/load-tests/k6-mqtt.exe
+/load-tests/buildcache/

@@ -5,6 +5,8 @@ package trip;
 service TripService {
   rpc CreateTrip(CreateTripRequest) returns (TripResponse);
   rpc GetTripById(TripId) returns (TripResponse);
+  rpc GetTrips(GetTripsRequest) returns (TripsListResponse);
+  rpc UpdateTrip(UpdateTripRequest) returns (TripResponse);
   rpc CancelTrip(TripId) returns (TripResponse);
   rpc AcceptTrip(AcceptTripRequest) returns (TripResponse);
   rpc StartTrip(TripId) returns (TripResponse);
@@ -33,4 +35,31 @@ message TripResponse {
   string userId = 2;
   optional string driverId = 3;
   string status = 4;
+  optional double pickupLatitude = 5;
+  optional double pickupLongitude = 6;
+  optional double destinationLatitude = 7;
+  optional double destinationLongitude = 8;
+  optional double driverLatitude = 9;
+  optional double driverLongitude = 10;
+}
+
+message GetTripsRequest {
+  optional string userId = 1;
+  optional string driverId = 2;
+  optional string status = 3;
+  int32 page = 4;
+  int32 limit = 5;
+}
+
+message TripsListResponse {
+  repeated TripResponse trips = 1;
+  int32 total = 2;
+  int32 page = 3;
+  int32 limit = 4;
+}
+
+message UpdateTripRequest {
+  string id = 1;
+  optional double destinationLatitude = 2;
+  optional double destinationLongitude = 3;
 }

@@ -3,6 +3,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { ClientGrpc } from '@nestjs/microservices';
 import { DriverServiceClient, GRPC_SERVICE } from '@uit-go/shared-client';
 import {
+  CreateDriverRequest,
   NearbyQuery,
   UpdateLocationRequest,
   UpdateStatusRequest,
@@ -19,6 +20,10 @@ export class DriverService {
     this.driverService = this.driverClient.getService<DriverServiceClient>(
       GRPC_SERVICE.DRIVER.NAME
     );
+  }
+
+  async createDriver(data: CreateDriverRequest) {
+    return firstValueFrom(this.driverService.CreateDriver(data));
   }
 
   async findOne(id: string) {
@@ -45,5 +50,26 @@ export class DriverService {
 
   async searchNearBy(data: NearbyQuery) {
     return firstValueFrom(this.driverService.searchNearbyDrivers(data));
+  }
+
+  async findAll(request: { page?: number; limit?: number; status?: string }) {
+    return firstValueFrom(this.driverService.getDrivers(request));
+  }
+
+  async updateProfile(request: {
+    userId: string;
+    name?: string;
+    email?: string;
+    phone?: string;
+    vehicleType?: string;
+    licensePlate?: string;
+    licenseNumber?: string;
+    balance?: number;
+  }) {
+    return firstValueFrom(this.driverService.updateDriverProfile(request));
+  }
+
+  async deleteDriver(userId: string) {
+    return firstValueFrom(this.driverService.deleteDriver({ userId }));
   }
 }

@@ -7,8 +7,14 @@
 /* eslint-disable */
 import { GrpcMethod, GrpcStreamMethod } from '@nestjs/microservices';
 import { Observable } from 'rxjs';
-import { CreateTripRequest, AcceptTripRequest, TripId } from '../dto/request';
-import { TripResponse } from '../dto/response';
+import {
+  CreateTripRequest,
+  AcceptTripRequest,
+  TripId,
+  GetTripsRequest,
+  UpdateTripRequest,
+} from '../dto/request';
+import { TripResponse, TripsListResponse } from '../dto/response';
 
 export const protobufPackage = 'trip';
 
@@ -18,6 +24,10 @@ export interface TripServiceClient {
   createTrip(request: CreateTripRequest): Observable<TripResponse>;
 
   getTripById(request: TripId): Observable<TripResponse>;
+
+  getTrips(request: GetTripsRequest): Observable<TripsListResponse>;
+
+  updateTrip(request: UpdateTripRequest): Observable<TripResponse>;
 
   cancelTrip(request: TripId): Observable<TripResponse>;
 
@@ -35,6 +45,17 @@ export interface TripServiceController {
 
   getTripById(
     request: TripId
+  ): Promise<TripResponse> | Observable<TripResponse> | TripResponse;
+
+  getTrips(
+    request: GetTripsRequest
+  ):
+    | Promise<TripsListResponse>
+    | Observable<TripsListResponse>
+    | TripsListResponse;
+
+  updateTrip(
+    request: UpdateTripRequest
   ): Promise<TripResponse> | Observable<TripResponse> | TripResponse;
 
   cancelTrip(
@@ -59,6 +80,8 @@ export function TripServiceControllerMethods() {
     const grpcMethods: string[] = [
       'createTrip',
       'getTripById',
+      'getTrips',
+      'updateTrip',
       'cancelTrip',
       'acceptTrip',
       'startTrip',

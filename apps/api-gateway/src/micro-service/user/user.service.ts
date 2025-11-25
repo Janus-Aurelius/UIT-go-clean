@@ -27,4 +27,18 @@ export class UserService {
       balance: profile.balance,
     };
   }
+
+  async findAll(request: { page?: number; limit?: number }) {
+    return firstValueFrom(this.userService.getUsers(request));
+  }
+
+  async update(request: {
+    user_id: string;
+    full_name?: string;
+    email?: string;
+    phone?: string;
+    balance?: number;
+  }) {
+    return firstValueFrom(this.userService.updateUserProfile(request));
+  }
 }

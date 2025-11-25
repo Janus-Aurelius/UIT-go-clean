@@ -5,6 +5,8 @@ export const GRPC_SERVICE = {
     METHODS: {
       CREATE: 'CreateUserProfile',
       DETAIL: 'GetUser',
+      LIST: 'GetUsers',
+      UPDATE: 'UpdateUserProfile',
     },
   },
   DRIVER: {
@@ -13,6 +15,9 @@ export const GRPC_SERVICE = {
     METHODS: {
       CREATE: 'CreateDriver',
       DETAIL: 'GetDriver',
+      LIST: 'GetDrivers',
+      UPDATE: 'UpdateDriverProfile',
+      DELETE: 'DeleteDriver',
       UPDATE_STATUS: 'UpdateStatus',
       UPDATE_LOCATION: 'UpdateLocation',
       SEARCH_NEARBY: 'SearchNearbyDrivers',
@@ -24,6 +29,8 @@ export const GRPC_SERVICE = {
     METHODS: {
       CREATE: 'CreateTrip',
       DETAIL: 'GetTripById',
+      LIST: 'GetTrips',
+      UPDATE: 'UpdateTrip',
       CANCEL: 'CancelTrip',
       ACCEPT: 'AcceptTrip',
       START: 'StartTrip',

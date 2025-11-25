@@ -5,6 +5,8 @@ package user;
 service UserService {
   rpc CreateUserProfile(CreateUserProfileRequest) returns (UserProfileResponse);
   rpc GetUser(UserId) returns (UserProfileResponse);
+  rpc GetUsers(GetUsersRequest) returns (UsersListResponse);
+  rpc UpdateUserProfile(UpdateUserProfileRequest) returns (UserProfileResponse);
   // rpc GetUserTrips(GetUserTripsRequest) returns (TripsListResponse);
 }
 
@@ -26,5 +28,25 @@ message UserProfileResponse {
   string email = 3;
   string phone = 4;
   double balance = 5;
+}
+
+message GetUsersRequest {
+  int32 page = 1;
+  int32 limit = 2;
+}
+
+message UsersListResponse {
+  repeated UserProfileResponse users = 1;
+  int32 total = 2;
+  int32 page = 3;
+  int32 limit = 4;
+}
+
+message UpdateUserProfileRequest {
+  string user_id = 1;
+  optional string full_name = 2;
+  optional string email = 3;
+  optional string phone = 4;
+  optional double balance = 5;
 }
 

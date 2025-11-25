@@ -25,7 +25,21 @@ export class DriverController {
 
   @GrpcMethod(GRPC_SERVICE.DRIVER.NAME, GRPC_SERVICE.DRIVER.METHODS.CREATE)
   async createDriverProfile(data: CreateDriverRequest) {
-    return this.driverService.create(data);
+    console.log(
+      '🚚 Driver Controller - createDriverProfile called with data:',
+      JSON.stringify(data)
+    );
+    try {
+      const result = await this.driverService.create(data);
+      console.log(
+        '🚚 Driver Controller - createDriverProfile success:',
+        JSON.stringify(result)
+      );
+      return result;
+    } catch (error) {
+      console.log('🚚 Driver Controller - createDriverProfile ERROR:', error);
+      throw error;
+    }
   }
 
   @GrpcMethod(GRPC_SERVICE.DRIVER.NAME, GRPC_SERVICE.DRIVER.METHODS.DETAIL)
@@ -57,13 +71,18 @@ export class DriverController {
     return this.driverService.searchNearbyDrivers(data);
   }
 
-  // @GrpcMethod('DriverLocationService', 'GetLocation')
-  // async getLocation(data: GetLocationRequest) {
-  //   return this.driverService.getLocation(data);
-  // }
+  @GrpcMethod(GRPC_SERVICE.DRIVER.NAME, GRPC_SERVICE.DRIVER.METHODS.LIST)
+  async getDrivers(data: { page?: number; limit?: number; status?: string }) {
+    return this.driverService.findAll(data);
+  }
 
-  // @GrpcMethod('DriverLocationService', 'SearchDrivers')
-  // async searchDrivers(data: SearchDriversRequest) {
-  //   return this.driverService.searchDrivers(data);
-  // }
+  @GrpcMethod(GRPC_SERVICE.DRIVER.NAME, GRPC_SERVICE.DRIVER.METHODS.UPDATE)
+  async updateDriverProfile(data: any) {
+    return this.driverService.updateProfile(data);
+  }
+
+  @GrpcMethod(GRPC_SERVICE.DRIVER.NAME, GRPC_SERVICE.DRIVER.METHODS.DELETE)
+  async deleteDriver(data: GetDriverRequest) {
+    return this.driverService.deleteDriver(data.userId);
+  }
 }
