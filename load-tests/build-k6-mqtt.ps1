@@ -73,7 +73,8 @@ if (-not $UseGo) {
     # Run a temporary container to cross-compile for Windows
     $currentDir = $PWD.Path
     # FIX: Uses 'go run' to avoid 'xk6 not found' path issues
-    docker run --rm -v "${currentDir}:/output" -e GOOS=windows -e GOARCH=amd64 golang:latest sh -c 'apt-get update && apt-get install -y git && go run go.k6.io/xk6/cmd/xk6@latest build --with github.com/pmalhaire/xk6-mqtt@latest --output /output/k6-mqtt.exe'
+    # Using Grafana's xk6-mqtt instead of pmalhaire's fork for better stability
+    docker run --rm -v "${currentDir}:/output" -e GOOS=windows -e GOARCH=amd64 golang:latest sh -c 'apt-get update && apt-get install -y git && go run go.k6.io/xk6/cmd/xk6@latest build --with github.com/grafana/xk6-mqtt@latest --output /output/k6-mqtt.exe'
     
     if ($LASTEXITCODE -ne 0) {
         Write-Host "`nError: Failed to build Windows binary via Docker" -ForegroundColor Red
@@ -134,9 +135,10 @@ else {
 
     Write-Host "[4/4] Building k6 with xk6-mqtt extension..." -ForegroundColor Yellow
     Write-Host "This may take 2-5 minutes...`n" -ForegroundColor Gray
-    
-    # Build the custom binary
-    xk6 build --with github.com/pmalhaire/xk6-mqtt@latest --output k6-mqtt.exe
+
+    # Build the custom binary using official Grafana extension
+    # Using Grafana's xk6-mqtt instead of pmalhaire's fork for better stability
+    xk6 build --with github.com/grafana/xk6-mqtt@latest --output k6-mqtt.exe
     
     if ($LASTEXITCODE -ne 0) {
         Write-Host "`nError: xk6 build failed" -ForegroundColor Red

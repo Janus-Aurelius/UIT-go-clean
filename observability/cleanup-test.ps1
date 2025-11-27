@@ -185,12 +185,9 @@ if ($FlushRedis) {
     } else {
         Write-Info "Found $($realDrivers.Count) real test drivers"
         
-        # Remove real drivers in batches
-        $batchSize = 100
-        for ($i = 0; $i -lt $realDrivers.Count; $i += $batchSize) {
-            $batch = $realDrivers[$i..[Math]::Min($i + $batchSize - 1, $realDrivers.Count - 1)]
-            $batchString = $batch -join " "
-            docker exec redis redis-cli ZREM drivers $batchString 2>$null | Out-Null
+        # Remove real drivers one by one (ZREM requires separate arguments)
+        foreach ($driverId in $realDrivers) {
+            docker exec redis redis-cli ZREM drivers $driverId 2>$null | Out-Null
         }
         
         Write-Success "Removed $($realDrivers.Count) real test drivers"

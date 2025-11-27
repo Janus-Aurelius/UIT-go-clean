@@ -44,7 +44,7 @@ function Write-ColorMessage {
 # Function to check if a network exists
 function Test-DockerNetwork {
     param([string]$NetworkName)
-    $networks = docker network ls --filter "name=$NetworkName" --format "{{.Names}}"
+    $networks = docker network ls --filter "name=$NetworkName" --format "{{.Name}}"
     return $networks -contains $NetworkName
 }
 
@@ -117,20 +117,46 @@ if ($MainNetworkExists) {
 # Get absolute path for load tests directory
 $CurrentDir = Get-Location
 $LoadTestsAbsolutePath = Resolve-Path (Join-Path $CurrentDir $LOAD_TESTS_DIR)
-$K6BinaryPath = Join-Path $LoadTestsAbsolutePath "k6-mqtt.exe"
 
-# Verify k6-mqtt binary exists
-if (-not (Test-Path $K6BinaryPath)) {
-    Write-ColorMessage "`nERROR: k6-mqtt.exe not found at: $K6BinaryPath" $ColorRed
-    Write-ColorMessage "Please build the binary first:" $ColorYellow
-    Write-ColorMessage "  cd $LoadTestsAbsolutePath" $ColorCyan
-    Write-ColorMessage "  .\build-k6-mqtt.ps1 -UseGo" $ColorCyan
+# Find k6 binary (HTTP-only testing - no MQTT extensions needed)
+$K6BinaryPath = $null
+$K6BinaryName = $null
+
+# Option 1: Check PATH for k6 (recommended - system-wide installation)
+if (Get-Command k6 -ErrorAction SilentlyContinue) {
+    $K6BinaryPath = "k6"
+    $K6Version = (k6 version 2>&1 | Select-String "v\d+\.\d+\.\d+" | ForEach-Object { $_.Matches[0].Value })
+    $K6BinaryName = "k6 $K6Version (system PATH)"
+    Write-ColorMessage "✓ Found k6 in system PATH: $K6Version" $ColorGreen
+}
+# Option 2: Check for local k6.exe in load-tests folder
+elseif (Test-Path (Join-Path $LoadTestsAbsolutePath "k6.exe")) {
+    $K6BinaryPath = Join-Path $LoadTestsAbsolutePath "k6.exe"
+    $K6BinaryName = "k6.exe (local)"
+    Write-ColorMessage "✓ Found k6.exe in load-tests folder" $ColorGreen
+}
+# No k6 found
+else {
+    Write-ColorMessage "`n❌ ERROR: k6 not found!" $ColorRed
+    Write-ColorMessage "`nThis test requires regular k6 (HTTP-only, no MQTT extensions)." $ColorYellow
+    Write-ColorMessage "`nInstallation options:" $ColorBlue
+    Write-ColorMessage "`n  Option 1 - Install via Chocolatey (Recommended):" $ColorCyan
+    Write-ColorMessage "    choco install k6" $ColorGreen
+    Write-ColorMessage "`n  Option 2 - Install via Winget:" $ColorCyan
+    Write-ColorMessage "    winget install k6" $ColorGreen
+    Write-ColorMessage "`n  Option 3 - Manual Download:" $ColorCyan
+    Write-ColorMessage "    1. Visit: https://github.com/grafana/k6/releases/latest" $ColorGreen
+    Write-ColorMessage "    2. Download: k6-v*-windows-amd64.zip" $ColorGreen
+    Write-ColorMessage "    3. Extract k6.exe to: $LoadTestsAbsolutePath" $ColorGreen
+    Write-ColorMessage "`nAfter installation, run this script again." $ColorYellow
+    Write-ColorMessage "$('=' * 60)" $ColorBlue
     exit 1
 }
 
-# Run K6 test with Prometheus remote write using native binary
+# Run K6 test with Prometheus remote write
 Write-ColorMessage "`n[4/5] Running K6 test: $TestScript" $ColorBlue
-Write-ColorMessage "  - Using k6-mqtt binary (supports native MQTT)" $ColorCyan
+Write-ColorMessage "  - Using binary: $K6BinaryName" $ColorCyan
+Write-ColorMessage "  - Test type: HTTP-only (aggressive load testing)" $ColorCyan
 Write-ColorMessage "  - Metrics will be sent to Prometheus at: 127.0.0.1:9090 (IPv4)" $ColorCyan
 Write-ColorMessage "  - Test can access API at: http://localhost:3000/api/v1" $ColorCyan
 
@@ -138,15 +164,26 @@ Write-ColorMessage "  - Test can access API at: http://localhost:3000/api/v1" $C
 # CRITICAL: Use 127.0.0.1 instead of localhost to force IPv4
 # Windows may resolve 'localhost' to IPv6 ([::1]) which causes connection refusal
 $env:K6_PROMETHEUS_RW_SERVER_URL = "http://127.0.0.1:9090/api/v1/write"
-$env:K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM = "true"
+# IMPORTANT: Set to false so Grafana can display P95/P99 metrics
+# Native histograms are high-fidelity but incompatible with standard Grafana dashboards
+$env:K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM = "false"
 $env:BASE_URL = "http://localhost:3000/api/v1"
-$env:MQTT_BROKER_URL = "mqtt://localhost:1883"
+$env:MQTT_BROKER_URL = "mqtt://127.0.0.1:1883"  # Legacy var, not used in HTTP tests
 
 # Build and execute k6 command
-Write-ColorMessage "`nExecuting k6-mqtt.exe..." $ColorBlue
+Write-ColorMessage "`nExecuting k6 test..." $ColorBlue
+Write-ColorMessage "Command: k6 run --out experimental-prometheus-rw $TestScript" $ColorCyan
 Push-Location
 Set-Location $LoadTestsAbsolutePath
-& .\k6-mqtt.exe run --out experimental-prometheus-rw "$TestScript"
+
+# Execute k6 with the detected binary
+if ($K6BinaryPath -eq "k6") {
+    # k6 is in PATH, execute directly
+    k6 run --out experimental-prometheus-rw "$TestScript"
+} else {
+    # k6.exe is a local file, execute with path
+    & $K6BinaryPath run --out experimental-prometheus-rw "$TestScript"
+}
 Pop-Location
 
 $ExitCode = $LASTEXITCODE
