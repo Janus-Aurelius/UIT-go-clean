@@ -1,16 +1,3 @@
-# ============================================================================
-# docker-compose.yml - Unified Configuration for Architectural Comparison
-# ============================================================================
-# Purpose: Fair comparison between pre-improvement and post-improvement
-#          architectures with IDENTICAL resource constraints.
-#
-# Resource Allocation: MODERATE tier (2.5 CPUs, 4GB memory)
-# Replicas: 1 per service (for both scenarios)
-# Architecture: Toggle between scenarios using environment variables or configs
-#
-# This ensures performance differences are purely architectural, not resource-based.
-# ============================================================================
-
 services:
   # Redis - Caching and geospatial indexing (THE BOTTLENECK)
   # ⚠️ KEEP CPU LOW to ensure Redis is the bottleneck for driver matching algorithm tests
@@ -19,18 +6,18 @@ services:
     image: redis:7-alpine
     container_name: redis
     ports:
-      - "6379:6379"  # ✅ Exposed to host for seed-ghost-drivers.js access
+      - "6379:6379" # ✅ Exposed to host for seed-ghost-drivers.js access
     networks:
-      - uit-go-network      # ✅ Internal app services
-      - app-monitor-net     # ✅ Observability stack (Prometheus, Grafana, load tests)
+      - uit-go-network # ✅ Internal app services
+      - app-monitor-net # ✅ Observability stack (Prometheus, Grafana, load tests)
     deploy:
       replicas: 1
       resources:
         limits:
-          cpus: '0.5'        # ⚠️ Keep low - this is the bottleneck we want to test
-          memory: 256M       # ✅ Reduced from 512M (100k keys = ~50MB, 256M is plenty)
+          cpus: "0.5" # ⚠️ Keep low - this is the bottleneck we want to test
+          memory: 256M # ✅ Reduced from 512M (100k keys = ~50MB, 256M is plenty)
         reservations:
-          cpus: '0.25'
+          cpus: "0.25"
           memory: 128M
     mem_swappiness: 0
     command: redis-server --maxmemory 200mb --maxmemory-policy allkeys-lru
@@ -56,6 +43,7 @@ services:
       - TRIP_GRPC_URL=trip-service:50053
       - NODE_ENV=production
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - NODE_OPTIONS=--max-old-space-size=280 # ✅ Bumped to 280 to prevent OOM during high traffic aggregation
     depends_on:
       redis:
         condition: service_healthy
@@ -67,16 +55,16 @@ services:
         condition: service_started
     networks:
       - uit-go-network
-      - app-monitor-net  # ✅ Added for observability/k6 access
+      - app-monitor-net # ✅ Added for observability/k6 access
     deploy:
       replicas: 1
       resources:
         limits:
-          cpus: '0.5'
-          memory: 300M       # ✅ Reduced from 1024M to fit 4GB RAM host
+          cpus: "0.5"
+          memory: 350M # ✅ Bumped to 350M (Safety buffer so Gateway doesn't die)
         reservations:
-          cpus: '0.25'
-          memory: 150M
+          cpus: "0.25"
+          memory: 100M
     mem_swappiness: 0
     restart: unless-stopped
 
@@ -91,7 +79,8 @@ services:
       - TRIP_GRPC_URL=trip-service:50053
       - NODE_ENV=production
       - LOG_LEVEL=${LOG_LEVEL:-info}
-      - DATABASE_CONNECTION_LIMIT=2  # ⚠️ Critical for NeonDB free tier (2 * 3 replicas = 6 conn)
+      - DATABASE_CONNECTION_LIMIT=2 # ⚠️ Critical for NeonDB free tier (2 * 2 replicas = 4 conn)
+      - NODE_OPTIONS=--max-old-space-size=280 # ✅ Bumped to 280 for safety buffer
     env_file:
       - ./apps/user-service/.env
     # ports:
@@ -99,14 +88,14 @@ services:
     networks:
       - uit-go-network
     deploy:
-      replicas: 3  # ✅ Scaled to 3 instances for load balancing
+      replicas: 2 # ✅ Reduced from 3 - "Rule of Small"
       resources:
         limits:
-          cpus: '0.6'                # ✅ High CPU to hammer Redis
-          memory: 300M               # ✅ Reduced from 768M to fit 4GB RAM host
+          cpus: "0.6" # ✅ High CPU to hammer Redis
+          memory: 350M # ✅ Bumped to 350M (Safety buffer)
         reservations:
-          cpus: '0.25'
-          memory: 150M
+          cpus: "0.25"
+          memory: 100M
     mem_swappiness: 0
     restart: unless-stopped
 
@@ -123,7 +112,12 @@ services:
       - TRIP_GRPC_URL=trip-service:50053
       - NODE_ENV=production
       - LOG_LEVEL=${LOG_LEVEL:-info}
-      - DATABASE_CONNECTION_LIMIT=2  # ⚠️ Critical for NeonDB free tier (2 * 3 replicas = 6 conn)
+      - DATABASE_CONNECTION_LIMIT=2 # ⚠️ Critical for NeonDB free tier (2 * 2 replicas = 4 conn)
+      - NODE_OPTIONS=--max-old-space-size=280 # ✅ Bumped to 280 for safety buffer
+      # Pre-tuning Redis Geo bottleneck configuration
+      - USE_H3=false # false = pre-tuning (Redis Geo), true = post-tuning (H3)
+      - MAX_DRIVER_SEARCH_COUNT=1000 # Fetch up to 1000 drivers to demonstrate bottleneck
+      - PREFER_REAL_DRIVERS=true # Prioritize real drivers over ghosts in results
     env_file:
       - ./apps/driver-service/.env
     # ports:
@@ -136,14 +130,14 @@ services:
     networks:
       - uit-go-network
     deploy:
-      replicas: 3  # ✅ Scaled to 3 instances for load balancing
+      replicas: 2 # ✅ Reduced from 3 - "Rule of Small"
       resources:
         limits:
-          cpus: '0.6'                # ✅ High CPU to hammer Redis bottleneck
-          memory: 350M               # ✅ Reduced from 1024M to fit 4GB RAM host
+          cpus: "0.6" # ✅ High CPU to hammer Redis bottleneck
+          memory: 350M # ✅ Bumped to 350M (Safety buffer)
         reservations:
-          cpus: '0.25'
-          memory: 200M
+          cpus: "0.25"
+          memory: 150M
     mem_swappiness: 0
     restart: unless-stopped
 
@@ -158,7 +152,8 @@ services:
       - DRIVER_GRPC_URL=driver-service:50052
       - NODE_ENV=production
       - LOG_LEVEL=${LOG_LEVEL:-info}
-      - DATABASE_CONNECTION_LIMIT=2  # ⚠️ Critical for NeonDB free tier (2 * 3 replicas = 6 conn)
+      - DATABASE_CONNECTION_LIMIT=2 # ⚠️ Critical for NeonDB free tier (2 * 2 replicas = 4 conn)
+      - NODE_OPTIONS=--max-old-space-size=280 # ✅ Bumped to 280 for safety buffer
     env_file:
       - ./apps/trip-service/.env
     # ports:
@@ -166,14 +161,14 @@ services:
     networks:
       - uit-go-network
     deploy:
-      replicas: 3  # ✅ Scaled to 3 instances for load balancing
+      replicas: 2 # ✅ Reduced from 3 - "Rule of Small"
       resources:
         limits:
-          cpus: '0.6'                # ✅ High CPU to hammer Redis
-          memory: 300M               # ✅ Reduced from 768M to fit 4GB RAM host
+          cpus: "0.6" # ✅ High CPU to hammer Redis
+          memory: 350M # ✅ Bumped to 350M (Safety buffer)
         reservations:
-          cpus: '0.25'
-          memory: 150M
+          cpus: "0.25"
+          memory: 100M
     mem_swappiness: 0
     restart: unless-stopped
 
@@ -187,55 +182,83 @@ services:
       - ./config/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
     networks:
       - uit-go-network
-      - app-monitor-net  # ✅ Added for mosquitto-exporter access
+      - app-monitor-net # ✅ Added for mosquitto-exporter access
     deploy:
       replicas: 1
       resources:
         limits:
-          cpus: '0.2'
-          memory: 128M       # ✅ Reduced from 256M to fit 4GB RAM host
-        reservations:
-          cpus: '0.1'
-          memory: 64M
-    mem_swappiness: 0
+          cpus: "0.5" # ✅ Reduced since we aren't using it for load
+          memory: 128M # ✅ Optimized - MQTT not the bottleneck
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "mosquitto_pub", "-h", "localhost", "-t", "health", "-m", "ok", "-q", "1"]
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-i", "healthcheck", "-W", "3"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
+
+  # K6 Load Tester - Running INSIDE Docker network
+  # This bypasses Windows Docker networking issues with MQTT connections
+  k6-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.k6
+    networks:
+      - uit-go-network # ✅ Connects to Mosquitto and API Gateway directly (Linux-to-Linux)
+      - app-monitor-net # ✅ Connects to Prometheus directly
+    volumes:
+      - ./load-tests:/app/load-tests # Mount test scripts
+    environment:
+      # K6 Prometheus remote write
+      - K6_PROMETHEUS_RW_SERVER_URL=http://prometheus:9090/api/v1/write
+      - K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM=true
+      - K6_PROMETHEUS_RW_TREND_STATS=p(95),p(99),min,max
+      # Signal that K6 is running inside Docker (used by config.js)
+      - IN_DOCKER=true
+    # Keep it stopped by default, we run it manually with 'docker compose run'
+    profiles: ["test"]
 
 networks:
   uit-go-network:
     driver: bridge
   app-monitor-net:
-    external: true  # ✅ Shared network with observability stack
+    external: true # ✅ Shared network with observability stack
 
 # ============================================================================
-# OPTIMIZED RESOURCE ALLOCATION FOR 4GB RAM HOST
+# OPTIMIZED RESOURCE ALLOCATION - "RULE OF SMALL" + SAFETY BUFFERS
 # ============================================================================
-# ⚠️ TUNED FOR 4GB RAM HOST - Prevents OOM Kills while maintaining Redis bottleneck
+# ⚠️ Optimized for 4GB RAM hosts with safety buffers for load testing
 #
-# Service          | CPU Limit | Memory Limit | Replicas | Total CPUs | Total Memory
-# -----------------|-----------|--------------|----------|------------|-------------
-# redis            | 0.5       | 256M         | 1        | 0.5        | 256M
-# api-gateway      | 0.5       | 300M         | 1        | 0.5        | 300M
-# user-service     | 0.6       | 300M         | 3        | 1.8        | 900M
-# driver-service   | 0.6       | 350M         | 3        | 1.8        | 1050M
-# trip-service     | 0.6       | 300M         | 3        | 1.8        | 900M
-# mosquitto        | 0.2       | 128M         | 1        | 0.2        | 128M
-# -----------------|-----------|--------------|----------|------------|-------------
-# TOTAL            | -         | -            | 12       | 6.6 CPUs   | 3534M (~3.5GB)
+# Service          | CPU Limit | Memory Limit | Node Heap | Replicas | Total CPUs | Total Memory
+# -----------------|-----------|--------------|-----------|----------|------------|-------------
+# redis            | 0.5       | 256M         | N/A       | 1        | 0.5        | 256M
+# api-gateway      | 0.5       | 256M         | 200M      | 1        | 0.5        | 256M
+# user-service     | 0.6       | 256M         | 200M      | 2        | 1.2        | 512M
+# driver-service   | 0.6       | 300M         | 240M      | 2        | 1.2        | 600M
+# trip-service     | 0.6       | 256M         | 200M      | 2        | 1.2        | 512M
+# mosquitto        | 1.0       | 256M         | N/A       | 1        | 1.0        | 256M
+# -----------------|-----------|--------------|-----------|----------|------------|-------------
+# TOTAL            | -         | -            | -         | 9        | 5.6 CPUs   | 2392M (~2.4GB)
+#
+# ✅ NODE.JS MEMORY PROTECTION (CRITICAL FIX):
+#    - NODE_OPTIONS=--max-old-space-size=XXX prevents OOMKilled (exit code 137)
+#    - Heap size set to 75-80% of Docker memory limit
+#    - Forces V8 garbage collection BEFORE Docker kills the container
+#    - Without this, V8 sees 32GB host RAM and ignores Docker limits
 #
 # ✅ BOTTLENECK ARCHITECTURE PRESERVED:
 #    - Redis: 0.5 CPU (THE BOTTLENECK for driver matching algorithm)
-#    - App Services: 6.1 CPUs attacking 0.5 CPU Redis = guaranteed bottleneck
-#    - Total Memory: ~3.5GB (fits in 4GB RAM with ~500MB for host OS)
+#    - App Services: 4.6 CPUs attacking 0.5 CPU Redis = guaranteed bottleneck
+#    - Total Memory: ~2.4GB (fits in 4GB RAM with ~1.6GB for host OS + observability stack)
+#
+# ✅ SAFETY BUFFERS ADDED:
+#    - All services have 20-30% headroom above typical usage
+#    - Prevents OOMKilled during load testing spikes
+#    - Node.js heaps sized to 80% of memory limits
 #
 # ✅ DATABASE CONNECTION LIMITS:
 #    - Each service: 2 connections max (DATABASE_CONNECTION_LIMIT=2)
-#    - Total: 3 services × 3 replicas × 2 conn = 18 connections
-#    - Fits within NeonDB Free Tier limit (~20-50 connections)
+#    - Total: 3 services × 2 replicas × 2 conn = 12 connections
+#    - Fits comfortably within NeonDB Free Tier limit (~20-50 connections)
 #
 # ✅ GHOST DRIVER STRATEGY:
 #    - IDs starting with 'ghost:' bypass Clerk and NeonDB completely

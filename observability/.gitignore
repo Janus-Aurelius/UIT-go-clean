@@ -17,7 +17,7 @@ Thumbs.db
 *.tmp
 *.bak
 *~
-
+/generated/prisma
 # Screenshots (optional - uncomment if you don't want to commit screenshots)
 # *.png
 # *.jpg

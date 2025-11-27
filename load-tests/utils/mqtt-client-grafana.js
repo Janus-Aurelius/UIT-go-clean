@@ -2,27 +2,20 @@
  * MQTT client utilities for k6 load tests using Grafana's xk6-mqtt
  *
  * Uses the official Grafana xk6-mqtt extension with event-based API.
- * Requires custom k6 binary built with: xk6 build --with github.com/grafana/xk6-mqtt
  * API Reference: https://github.com/grafana/xk6-mqtt
  *
  * This module provides functions for:
  * - Creating MQTT clients for drivers
  * - Publishing driver location updates via MQTT
  * - Managing connection lifecycle
- *
- * Usage:
- *   import { createMqttClient, publishLocationUpdate } from './utils/mqtt-client.js';
  */
 
-import { Client } from 'k6/x/mqtt'; // Grafana xk6-mqtt extension
+import { Client } from 'k6/x/mqtt';
 import { config } from './config.js';
 import {
   mqttPublishLatency,
-  mqttPublishSuccess,
   mqttPublishErrors,
-  mqttPublishRate,
   mqttConnectionErrors,
-  mqttConnectionSuccess,
   mqttConnectionTime,
 } from './metrics.js';
 
@@ -30,75 +23,64 @@ import {
  * Create a persistent MQTT client for a driver (Grafana xk6-mqtt version)
  *
  * Each driver should have ONE persistent connection throughout the test.
- * Uses event-based programming model (async).
- *
- * IMPORTANT: This function sets up the client but connection happens asynchronously.
- * The 'connect' event will fire when connection is established.
+ * Uses event-based programming model.
  *
  * @param {string} driverId - Unique driver identifier
  * @returns {object} MQTT client wrapper with connection info
  */
 export function createMqttClient(driverId) {
-  const clientId = `driver_${driverId}`;  // Simplified clientId (no VU/timestamp for consistency)
+  const clientId = `driver_${driverId}_${__VU}_${Date.now()}`;
   const start = Date.now();
-
-  // Log connection attempt for visibility in Docker logs
-  console.log(`[MQTT CONNECT] Driver ${driverId} connecting to ${config.mqttBrokerUrl}...`);
 
   try {
     // Create MQTT client (Grafana API - no constructor parameters)
     const client = new Client();
 
     // Track connection state
-    const state = {
-      isConnected: false,
-      connectionError: null,
-      connectionTime: null,
-    };
+    let isConnected = false;
+    let connectionError = null;
 
     // Set up event handlers
     client.on('connect', () => {
-      state.isConnected = true;
-      state.connectionTime = Date.now() - start;
-      mqttConnectionTime.add(state.connectionTime);
-      mqttConnectionSuccess.add(1);
-      console.log(`[MQTT ✓] Driver ${driverId} connected in ${state.connectionTime}ms [clientId: ${clientId}] [broker: ${config.mqttBrokerUrl}]`);
+      isConnected = true;
+      const duration = Date.now() - start;
+      mqttConnectionTime.add(duration);
+      console.log(`[MQTT] Driver ${driverId} connected (${duration}ms)`);
     });
 
     client.on('error', (error) => {
-      state.connectionError = error;
+      connectionError = error;
       mqttConnectionErrors.add(1);
-      console.error(`[MQTT ✗] Error for driver ${driverId}: ${error} [broker: ${config.mqttBrokerUrl}]`);
+      console.error(`[MQTT] Error for driver ${driverId}:`, error);
     });
 
     client.on('reconnect', () => {
-      console.log(`[MQTT ↻] Driver ${driverId} reconnecting to ${config.mqttBrokerUrl}...`);
+      console.log(`[MQTT] Driver ${driverId} reconnecting...`);
     });
 
     client.on('end', () => {
-      state.isConnected = false;
-      console.log(`[MQTT ⊗] Driver ${driverId} disconnected from ${config.mqttBrokerUrl}`);
+      isConnected = false;
+      console.log(`[MQTT] Driver ${driverId} disconnected`);
     });
 
-    // Connect to broker
-    // Grafana xk6-mqtt connect() only takes the broker URL (no options parameter)
-    // clientId and other options are not configurable in this extension
-    console.log(`[MQTT] Initiating connection for driver ${driverId}...`);
+    // Connect to broker (Grafana API - takes URL directly)
     client.connect(config.mqttBrokerUrl);
 
-    // Return wrapper with state reference
-    // Note: Connection happens asynchronously, check wrapper.connected later
+    // Wait a bit for connection to establish
+    // In event-driven model, we need to give it time to connect
+    const maxWaitTime = 5000; // 5 seconds
+    const startWait = Date.now();
+    while (!isConnected && !connectionError && (Date.now() - startWait) < maxWaitTime) {
+      // Busy wait (k6 doesn't support async/await in this context)
+      // This is a simplified approach; in production, use proper event handling
+    }
+
     return {
       client,
       clientId,
       driverId,
-      state, // Reference to mutable state object
-      get connected() {
-        return state.isConnected;
-      },
-      get error() {
-        return state.connectionError;
-      },
+      connected: isConnected,
+      error: connectionError,
     };
   } catch (error) {
     mqttConnectionErrors.add(1);
@@ -128,11 +110,6 @@ export function createMqttClient(driverId) {
 export function publishLocationUpdate(mqttClientWrapper, latitude, longitude) {
   if (!mqttClientWrapper.connected || !mqttClientWrapper.client) {
     mqttPublishErrors.add(1);
-    mqttPublishRate.add(0);
-    // Only log first few errors to avoid spam
-    if (mqttPublishErrors.value < 5) {
-      console.error(`[MQTT ✗] Cannot publish for driver ${mqttClientWrapper.driverId}: client not connected`);
-    }
     return {
       success: false,
       error: 'MQTT client not connected',
@@ -160,14 +137,6 @@ export function publishLocationUpdate(mqttClientWrapper, latitude, longitude) {
 
     const duration = Date.now() - start;
     mqttPublishLatency.add(duration);
-    mqttPublishSuccess.add(1);
-    mqttPublishRate.add(1);
-
-    // Log successful publishes occasionally for monitoring (every 100th publish per driver)
-    const totalPublishes = mqttPublishSuccess.value;
-    if (totalPublishes % 100 === 0) {
-      console.log(`[MQTT →] Published ${totalPublishes} total messages (latest: driver ${driverId}, ${duration}ms)`);
-    }
 
     return {
       success: true,
@@ -178,9 +147,8 @@ export function publishLocationUpdate(mqttClientWrapper, latitude, longitude) {
   } catch (error) {
     const duration = Date.now() - start;
     mqttPublishErrors.add(1);
-    mqttPublishRate.add(0);
 
-    console.error(`[MQTT ✗] Publish failed for driver ${driverId}: ${error.message}`);
+    console.error(`[MQTT] Publish failed for driver ${driverId}:`, error.message);
 
     return {
       success: false,
@@ -250,9 +218,6 @@ export function disconnectMqttClient(mqttClientWrapper) {
 
 /**
  * MQTT topic naming convention for driver location updates
- *
- * Follows pattern: driver/location/{driverId}
- * Backend services subscribe to these topics to receive real-time location updates
  */
 export const MQTT_TOPICS = {
   // Driver location updates (published by drivers, subscribed by backend)
@@ -267,8 +232,6 @@ export const MQTT_TOPICS = {
 
 /**
  * Create MQTT message payload for location update
- *
- * Payload structure matches what the backend expects.
  *
  * @param {string} driverId - Driver ID
  * @param {number} latitude - Latitude
@@ -288,16 +251,12 @@ export function createLocationPayload(driverId, latitude, longitude) {
 /**
  * Simulate driver movement (helper function)
  *
- * Generates a new location near the previous one.
- * Used to create realistic movement patterns in tests.
- *
  * @param {number} prevLat - Previous latitude
  * @param {number} prevLng - Previous longitude
  * @param {number} maxDelta - Maximum change in degrees (default: ~111m)
  * @returns {object} New location {latitude, longitude}
  */
 export function simulateDriverMovement(prevLat, prevLng, maxDelta = 0.001) {
-  // Random direction
   const angle = Math.random() * 2 * Math.PI;
   const distance = Math.random() * maxDelta;
 

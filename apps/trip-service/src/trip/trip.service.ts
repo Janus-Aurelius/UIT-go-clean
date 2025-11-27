@@ -247,17 +247,27 @@ export class TripService implements OnModuleInit {
   }
 
   async startTrip(id: string) {
-    return this.prisma.trip.update({
+    console.log(`[TripService] Starting trip: ${id}`);
+    const trip = await this.prisma.trip.update({
       where: { id },
       data: { status: 'ONGOING' },
     });
+    console.log(
+      `[TripService] Trip ${id} started successfully. Status: ${trip.status}`
+    );
+    return trip;
   }
 
   async completeTrip(id: string) {
+    console.log(`[TripService] Completing trip: ${id}`);
     const trip = await this.prisma.trip.update({
       where: { id },
       data: { status: 'COMPLETED' },
     });
+
+    console.log(
+      `[TripService] Trip ${id} completed. Status: ${trip.status}. Releasing driver: ${trip.driverId}`
+    );
 
     // Release driver: Update driver status back to ONLINE when trip is completed
     // The driver service will now accept location updates again since status is ONLINE
@@ -273,7 +283,9 @@ export class TripService implements OnModuleInit {
           this.driverService.updateStatus(updateStatusRequest)
         );
 
-        console.log(`Driver ${trip.driverId} released and set to ONLINE. Can now accept location updates.`);
+        console.log(
+          `[TripService] Driver ${trip.driverId} released and set to ONLINE. Can now accept location updates.`
+        );
       } catch (error) {
         console.error('Error updating driver status to online:', error);
       }

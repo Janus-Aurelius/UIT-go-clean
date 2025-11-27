@@ -15,19 +15,19 @@ const headers = { 'Content-Type': 'application/json' };
 
 // User States
 export const UserState = {
-  IDLE: 'IDLE',                 // Available to request trip
-  REQUESTING: 'REQUESTING',     // Trip request sent
-  MATCHED: 'MATCHED',           // Driver assigned
-  IN_TRIP: 'IN_TRIP',          // Trip in progress
-  COMPLETED: 'COMPLETED',       // Trip just completed (transitional)
+  IDLE: 'IDLE', // Available to request trip
+  REQUESTING: 'REQUESTING', // Trip request sent
+  MATCHED: 'MATCHED', // Driver assigned
+  IN_TRIP: 'IN_TRIP', // Trip in progress
+  COMPLETED: 'COMPLETED', // Trip just completed (transitional)
 };
 
 // Driver States
 export const DriverState = {
-  AVAILABLE: 'AVAILABLE',       // Online and ready for matching
-  ASSIGNED: 'ASSIGNED',         // Assigned to trip, not started
-  BUSY: 'BUSY',                 // In active trip
-  OFFLINE: 'OFFLINE',           // Not available
+  AVAILABLE: 'AVAILABLE', // Online and ready for matching
+  ASSIGNED: 'ASSIGNED', // Assigned to trip, not started
+  BUSY: 'BUSY', // In active trip
+  OFFLINE: 'OFFLINE', // Not available
 };
 
 // Trip States (from backend)
@@ -45,7 +45,7 @@ export const TripStatus = {
  */
 export class UserPool {
   constructor(userIds) {
-    this.users = userIds.map(userId => ({
+    this.users = userIds.map((userId) => ({
       userId,
       state: UserState.IDLE,
       currentTrip: null,
@@ -58,7 +58,7 @@ export class UserPool {
    * Get a random user in a specific state
    */
   getUserInState(state) {
-    const candidates = this.users.filter(u => u.state === state);
+    const candidates = this.users.filter((u) => u.state === state);
     if (candidates.length === 0) return null;
     return candidates[Math.floor(Math.random() * candidates.length)];
   }
@@ -67,7 +67,7 @@ export class UserPool {
    * Get multiple users in a specific state
    */
   getUsersInState(state, count = null) {
-    const candidates = this.users.filter(u => u.state === state);
+    const candidates = this.users.filter((u) => u.state === state);
     if (count === null) return candidates;
     return candidates.slice(0, count);
   }
@@ -76,7 +76,7 @@ export class UserPool {
    * Update user state
    */
   updateUserState(userId, newState, tripData = null) {
-    const user = this.users.find(u => u.userId === userId);
+    const user = this.users.find((u) => u.userId === userId);
     if (!user) return false;
 
     user.state = newState;
@@ -113,13 +113,23 @@ export class UserPool {
       completed: 0,
     };
 
-    this.users.forEach(user => {
+    this.users.forEach((user) => {
       switch (user.state) {
-        case UserState.IDLE: stats.idle++; break;
-        case UserState.REQUESTING: stats.requesting++; break;
-        case UserState.MATCHED: stats.matched++; break;
-        case UserState.IN_TRIP: stats.inTrip++; break;
-        case UserState.COMPLETED: stats.completed++; break;
+        case UserState.IDLE:
+          stats.idle++;
+          break;
+        case UserState.REQUESTING:
+          stats.requesting++;
+          break;
+        case UserState.MATCHED:
+          stats.matched++;
+          break;
+        case UserState.IN_TRIP:
+          stats.inTrip++;
+          break;
+        case UserState.COMPLETED:
+          stats.completed++;
+          break;
       }
     });
 
@@ -133,7 +143,7 @@ export class UserPool {
  */
 export class DriverPool {
   constructor(driversData) {
-    this.drivers = driversData.map(driver => ({
+    this.drivers = driversData.map((driver) => ({
       driverId: driver.driverId,
       location: driver.location,
       state: DriverState.AVAILABLE,
@@ -148,7 +158,7 @@ export class DriverPool {
    * Get a random driver in a specific state
    */
   getDriverInState(state) {
-    const candidates = this.drivers.filter(d => d.state === state);
+    const candidates = this.drivers.filter((d) => d.state === state);
     if (candidates.length === 0) return null;
     return candidates[Math.floor(Math.random() * candidates.length)];
   }
@@ -157,7 +167,7 @@ export class DriverPool {
    * Get drivers in a specific state
    */
   getDriversInState(state, count = null) {
-    const candidates = this.drivers.filter(d => d.state === state);
+    const candidates = this.drivers.filter((d) => d.state === state);
     if (count === null) return candidates;
     return candidates.slice(0, count);
   }
@@ -166,7 +176,7 @@ export class DriverPool {
    * Update driver state
    */
   updateDriverState(driverId, newState, tripData = null) {
-    const driver = this.drivers.find(d => d.driverId === driverId);
+    const driver = this.drivers.find((d) => d.driverId === driverId);
     if (!driver) return false;
 
     driver.state = newState;
@@ -188,7 +198,7 @@ export class DriverPool {
    * Update driver location
    */
   updateLocation(driverId, newLocation) {
-    const driver = this.drivers.find(d => d.driverId === driverId);
+    const driver = this.drivers.find((d) => d.driverId === driverId);
     if (!driver) return false;
 
     driver.location = newLocation;
@@ -200,7 +210,7 @@ export class DriverPool {
    * Get driver by ID
    */
   getDriver(driverId) {
-    return this.drivers.find(d => d.driverId === driverId);
+    return this.drivers.find((d) => d.driverId === driverId);
   }
 
   /**
@@ -215,12 +225,20 @@ export class DriverPool {
       offline: 0,
     };
 
-    this.drivers.forEach(driver => {
+    this.drivers.forEach((driver) => {
       switch (driver.state) {
-        case DriverState.AVAILABLE: stats.available++; break;
-        case DriverState.ASSIGNED: stats.assigned++; break;
-        case DriverState.BUSY: stats.busy++; break;
-        case DriverState.OFFLINE: stats.offline++; break;
+        case DriverState.AVAILABLE:
+          stats.available++;
+          break;
+        case DriverState.ASSIGNED:
+          stats.assigned++;
+          break;
+        case DriverState.BUSY:
+          stats.busy++;
+          break;
+        case DriverState.OFFLINE:
+          stats.offline++;
+          break;
       }
     });
 
@@ -243,7 +261,7 @@ export class TripLifecycleManager {
    * Create a new trip (user requests ride)
    */
   createTrip(userId, pickupLocation, destinationLocation) {
-    const user = this.userPool.users.find(u => u.userId === userId);
+    const user = this.userPool.users.find((u) => u.userId === userId);
     if (!user || user.state !== UserState.IDLE) {
       return { success: false, error: 'User not available' };
     }
@@ -259,15 +277,11 @@ export class TripLifecycleManager {
       destinationLongitude: destinationLocation.longitude,
     };
 
-    const res = http.post(
-      `${config.baseUrl}/trips`,
-      JSON.stringify(payload),
-      {
-        headers,
-        timeout: config.timeouts.tripCreation,
-        tags: { name: 'create_trip_lifecycle' },
-      }
-    );
+    const res = http.post(`${config.baseUrl}/trips`, JSON.stringify(payload), {
+      headers,
+      timeout: config.timeouts.tripCreation,
+      tags: { name: 'create_trip_lifecycle' },
+    });
 
     let tripData = null;
     if (res.status === 200 || res.status === 201) {
@@ -297,7 +311,7 @@ export class TripLifecycleManager {
           trip: tripData,
           response: res,
         };
-      } catch (e) {
+      } catch (_e) {
         this.userPool.updateUserState(userId, UserState.IDLE);
         return { success: false, error: 'Parse error', response: res };
       }
@@ -317,26 +331,30 @@ export class TripLifecycleManager {
       return { success: false, error: 'Trip not found' };
     }
 
-    const res = http.post(
-      `${config.baseUrl}/trips/${tripId}/start`,
-      null,
-      {
-        headers,
-        timeout: config.timeouts.default,
-        tags: { name: 'start_trip_lifecycle' },
-      }
-    );
+    const res = http.post(`${config.baseUrl}/trips/${tripId}/start`, null, {
+      headers,
+      timeout: config.timeouts.default,
+      tags: { name: 'start_trip_lifecycle' },
+    });
 
-    if (res.status === 200) {
+    if (res.status === 200 || res.status === 201) {
       try {
         const updatedTrip = JSON.parse(res.body);
 
         // Update user state to in-trip
-        this.userPool.updateUserState(trip.userId, UserState.IN_TRIP, updatedTrip);
+        this.userPool.updateUserState(
+          trip.userId,
+          UserState.IN_TRIP,
+          updatedTrip
+        );
 
         // Update driver state to busy
         if (trip.driverId) {
-          this.driverPool.updateDriverState(trip.driverId, DriverState.BUSY, updatedTrip);
+          this.driverPool.updateDriverState(
+            trip.driverId,
+            DriverState.BUSY,
+            updatedTrip
+          );
         }
 
         // Update active trip
@@ -350,7 +368,7 @@ export class TripLifecycleManager {
           trip: updatedTrip,
           response: res,
         };
-      } catch (e) {
+      } catch (_e) {
         return { success: false, error: 'Parse error', response: res };
       }
     } else {
@@ -367,26 +385,29 @@ export class TripLifecycleManager {
       return { success: false, error: 'Trip not found' };
     }
 
-    const res = http.post(
-      `${config.baseUrl}/trips/${tripId}/complete`,
-      null,
-      {
-        headers,
-        timeout: config.timeouts.default,
-        tags: { name: 'complete_trip_lifecycle' },
-      }
-    );
+    const res = http.post(`${config.baseUrl}/trips/${tripId}/complete`, null, {
+      headers,
+      timeout: config.timeouts.default,
+      tags: { name: 'complete_trip_lifecycle' },
+    });
 
-    if (res.status === 200) {
+    if (res.status === 200 || res.status === 201) {
       try {
         const completedTrip = JSON.parse(res.body);
 
         // Return user to idle (via completed state)
-        this.userPool.updateUserState(trip.userId, UserState.COMPLETED, completedTrip);
+        this.userPool.updateUserState(
+          trip.userId,
+          UserState.COMPLETED,
+          completedTrip
+        );
 
         // Return driver to available
         if (trip.driverId) {
-          this.driverPool.updateDriverState(trip.driverId, DriverState.AVAILABLE);
+          this.driverPool.updateDriverState(
+            trip.driverId,
+            DriverState.AVAILABLE
+          );
         }
 
         // Remove from active trips
@@ -397,7 +418,7 @@ export class TripLifecycleManager {
           trip: completedTrip,
           response: res,
         };
-      } catch (e) {
+      } catch (_e) {
         return { success: false, error: 'Parse error', response: res };
       }
     } else {
@@ -419,7 +440,7 @@ export class TripLifecycleManager {
       try {
         const trip = JSON.parse(res.body);
         return { success: true, trip, response: res };
-      } catch (e) {
+      } catch (_e) {
         return { success: false, error: 'Parse error', response: res };
       }
     } else {

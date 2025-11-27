@@ -4,12 +4,25 @@
  * Usage: import { config } from './utils/config.js';
  */
 
+// Detect if running inside Docker (set via ENV in docker-compose)
+const IN_DOCKER = __ENV.IN_DOCKER === 'true';
+
 export const config = {
   // API Base URL
-  baseUrl: __ENV.BASE_URL || 'http://localhost:3000/api/v1',
+  // When running inside Docker, use internal service name instead of localhost
+  baseUrl:
+    __ENV.BASE_URL ||
+    (IN_DOCKER
+      ? 'http://api-gateway:3000/api/v1'
+      : 'http://localhost:3000/api/v1'),
 
-  // MQTT Broker (for tests that publish MQTT messages)
-  mqttBrokerUrl: __ENV.MQTT_BROKER_URL || 'mqtt://localhost:1883',
+  // MQTT Broker
+  // When running inside Docker, use internal service name for direct Linux-to-Linux communication
+  // This bypasses Windows Docker proxy issues with long-lived TCP connections
+  // ⚠️ IMPORTANT: Use 'tcp://' protocol for xk6-mqtt (not 'mqtt://')
+  mqttBrokerUrl:
+    __ENV.MQTT_BROKER_URL ||
+    (IN_DOCKER ? 'tcp://mosquitto:1883' : 'tcp://localhost:1883'),
 
   // Test Data Configuration
   numUsers: parseInt(__ENV.NUM_USERS || '100'),

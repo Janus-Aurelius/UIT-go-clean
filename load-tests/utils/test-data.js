@@ -133,6 +133,8 @@ export function setDriverOnline(driverId, location = null) {
   return {
     success: locationRes.status === 200 && statusRes.status === 200,
     location: loc,
+    locationResponse: locationRes,
+    statusResponse: statusRes,
   };
 }
 

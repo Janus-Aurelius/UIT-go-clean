@@ -42,10 +42,14 @@ export const tripCompletionRate = new Rate('trip_completion_rate');
 
 // MQTT Metrics
 export const mqttPublishLatency = new Trend('mqtt_publish_latency', true);
+export const mqttPublishSuccess = new Counter('mqtt_publish_success');
 export const mqttPublishErrors = new Counter('mqtt_publish_errors');
+export const mqttPublishRate = new Rate('mqtt_publish_rate');
 export const mqttConnectionTime = new Trend('mqtt_connection_time', true);
+export const mqttConnectionSuccess = new Counter('mqtt_connection_success');
 export const mqttConnectionErrors = new Counter('mqtt_connection_errors');
 export const mqttSubscriptionErrors = new Counter('mqtt_subscription_errors');
+export const mqttCalls = new Counter('mqtt_calls');
 
 /**
  * Helper function to record a successful operation

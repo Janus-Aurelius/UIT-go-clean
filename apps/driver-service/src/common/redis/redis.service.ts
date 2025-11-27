@@ -91,4 +91,53 @@ export class RedisService implements OnModuleInit {
       distance: parseFloat(r.distance),
     }));
   }
+
+  /**
+   * Large geosearch for pre-tuning bottleneck testing
+   *
+   * Fetches a large number of drivers (up to maxCount) to demonstrate
+   * the Redis GEOSEARCH bottleneck when searching through 100k+ ghost drivers.
+   *
+   * In pre-tuning mode, this creates:
+   * - Network bottleneck (transferring large result sets)
+   * - Redis CPU bottleneck (sorting/filtering large datasets)
+   * - App CPU bottleneck (in-memory filtering)
+   *
+   * Post-tuning with H3 will avoid this by partitioning data into small cells.
+   */
+  async geosearchLarge(
+    key: string,
+    lon: number,
+    lat: number,
+    radiusKm: number,
+    maxCount: number = 1000
+  ) {
+    const options: any = { SORT: 'ASC' };
+    if (maxCount && maxCount > 0) {
+      options.COUNT = maxCount;
+    }
+
+    this.logger.debug(
+      `Fetching up to ${maxCount} drivers from Redis (pre-tuning bottleneck test)`
+    );
+
+    const startTime = Date.now();
+    const results = await this.client.geoSearchWith(
+      key,
+      { longitude: lon, latitude: lat },
+      { radius: radiusKm, unit: 'km' },
+      ['WITHDIST'],
+      options
+    );
+    const duration = Date.now() - startTime;
+
+    this.logger.debug(
+      `Redis GEOSEARCH completed: ${results.length} drivers in ${duration}ms`
+    );
+
+    return results.map((r) => ({
+      member: r.member,
+      distance: parseFloat(r.distance),
+    }));
+  }
 }

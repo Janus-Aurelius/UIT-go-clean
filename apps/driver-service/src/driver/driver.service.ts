@@ -12,7 +12,6 @@ import {
 import { DriverProfile, VehicleType } from '../../generated/prisma';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { RedisService } from '../common/redis/redis.service';
-import { Decimal } from '@prisma/client/runtime/library';
 
 @Injectable()
 export class DriverService {
@@ -217,17 +216,108 @@ export class DriverService {
     return this.mapToResponse(profile);
   }
 
+  /**
+   * Search for nearby drivers
+   *
+   * PRE-TUNING MODE (USE_H3=false):
+   * - Fetches up to MAX_DRIVER_SEARCH_COUNT (default 1000) drivers from Redis
+   * - Filters real drivers from ghosts in application memory
+   * - Returns real drivers first, ghosts as fallback (if PREFER_REAL_DRIVERS=true)
+   * - Demonstrates Redis GEOSEARCH bottleneck with 100k+ ghost drivers
+   *
+   * POST-TUNING MODE (USE_H3=true):
+   * - Uses Uber H3 spatial indexing for efficient driver lookup
+   * - Only fetches drivers in relevant hex cells
+   * - Avoids large result sets and in-memory filtering
+   *
+   * @param data NearbyQuery with location and search parameters
+   * @returns NearbyDriverResponse with list of nearby drivers
+   */
   async searchNearbyDrivers(data: NearbyQuery): Promise<NearbyDriverResponse> {
-    const res = await this.redisService.geosearch(
+    const useH3 = process.env.USE_H3 === 'true';
+
+    if (useH3) {
+      // POST-TUNING: Uber H3 implementation (to be added later)
+      // This will partition drivers into hex cells for efficient lookup
+      throw new Error(
+        'H3 implementation not yet available. Set USE_H3=false to use pre-tuning mode.'
+      );
+    }
+
+    // ========================================================================
+    // PRE-TUNING MODE: Redis Geo with High COUNT + In-Memory Filtering
+    // ========================================================================
+    //
+    // Strategy: Fetch a LARGE number of drivers (up to 1000) to find real
+    // drivers hidden among 100k ghost drivers. This creates the bottleneck:
+    // - Network: Large data transfer from Redis to App
+    // - Redis CPU: Sorting/filtering 100k+ drivers
+    // - App CPU: In-memory filtering of results
+    //
+    // This bottleneck will be eliminated in post-tuning with H3.
+
+    const maxSearchCount = parseInt(
+      process.env.MAX_DRIVER_SEARCH_COUNT || '1000'
+    );
+    const preferRealDrivers = process.env.PREFER_REAL_DRIVERS !== 'false';
+
+    const searchStart = Date.now();
+
+    // Fetch large number of drivers (THE BOTTLENECK)
+    const allResults = await this.redisService.geosearchLarge(
       'drivers',
       data.longitude,
       data.latitude,
       data.radiusKm,
-      data.count
+      maxSearchCount
     );
 
+    const searchDuration = Date.now() - searchStart;
+
+    // Separate real drivers from ghosts
+    const realDrivers = allResults.filter(
+      (r) => !r.member.startsWith('ghost:')
+    );
+    const ghostDrivers = allResults.filter((r) =>
+      r.member.startsWith('ghost:')
+    );
+
+    // Log performance metrics for analysis
+    console.log(
+      `[DRIVER SEARCH] Pre-tuning mode | ` +
+        `Total: ${allResults.length} | ` +
+        `Real: ${realDrivers.length} | ` +
+        `Ghosts: ${ghostDrivers.length} | ` +
+        `Duration: ${searchDuration}ms | ` +
+        `Requested: ${data.count}`
+    );
+
+    let results: Array<{ member: string; distance: number }>;
+
+    if (preferRealDrivers) {
+      // Prioritize real drivers, fill remaining slots with ghosts if needed
+      const realSlice = realDrivers.slice(0, data.count);
+      const remainingSlots = Math.max(0, data.count - realSlice.length);
+      const ghostSlice = ghostDrivers.slice(0, remainingSlots);
+
+      results = [...realSlice, ...ghostSlice];
+
+      if (realSlice.length < data.count && ghostSlice.length > 0) {
+        console.log(
+          `[DRIVER SEARCH] Only found ${realSlice.length} real drivers, ` +
+            `filled ${ghostSlice.length} slots with ghosts`
+        );
+      }
+    } else {
+      // No filtering - return raw results (includes ghosts)
+      results = allResults.slice(0, data.count);
+      console.log(
+        `[DRIVER SEARCH] PREFER_REAL_DRIVERS=false, returning mixed results`
+      );
+    }
+
     return {
-      list: res.map((r) => ({
+      list: results.map((r) => ({
         driverId: r.member,
         distance: r.distance.toString(),
       })),
