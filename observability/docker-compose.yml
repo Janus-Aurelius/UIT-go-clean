@@ -74,6 +74,7 @@ services:
       # Auto-provision datasources and dashboards
       - ./grafana_provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - ./grafana_provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana_provisioning/grafana.ini:/etc/grafana/grafana.ini:ro
       - grafana-data:/var/lib/grafana
     networks:
       - observability-net
