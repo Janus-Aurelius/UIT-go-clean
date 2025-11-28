@@ -23,12 +23,27 @@ import { createClient } from 'redis';
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 const DEFAULT_GHOST_COUNT = 100000;
 
-// Ho Chi Minh City area (Thu Duc City)
+// ============================================================================
+// CLUSTER BOMB CONFIGURATION (Worst-Case Scenario for Redis GEOSEARCH)
+// ============================================================================
+// Scenario: All 100k drivers are concentrated in a tiny area (e.g., concert venue)
+// This forces Redis GEOSEARCH to:
+//   1. Scan ALL drivers in the geohash prefix (can't use spatial filtering)
+//   2. Calculate exact Haversine distance for ALL 100k drivers
+//   3. Sort ALL 100k drivers by distance
+//   4. Return top N (this is the bottleneck)
+//
+// H3 handles this effortlessly because:
+//   - Drivers are pre-partitioned into hex cells
+//   - ZSET keeps them sorted by rating within each cell
+//   - Only queries 5-10 cells instead of scanning 100k drivers
+// ============================================================================
 const LOCATION_CONFIG = {
-  baseLat: 10.7626,
-  baseLng: 106.6826,
-  latDelta: 0.1, // ~11km range
-  lngDelta: 0.1,
+  baseLat: 10.7626,    // Thu Duc City center
+  baseLng: 106.6826,   // Thu Duc City center
+  latDelta: 0.005,     // ~0.5km radius (TIGHT CLUSTER - THE BOTTLENECK!)
+  lngDelta: 0.005,     // ~0.5km radius
+  // NOTE: 0.009 degrees ≈ 1km. We use 0.005 to ensure ALL drivers are within search radius.
 };
 
 // Parse command line arguments
@@ -59,10 +74,12 @@ function randomLocation() {
  */
 async function seedGhostDrivers(client) {
   console.log('\n' + '='.repeat(80));
-  console.log('SEEDING GHOST DRIVERS TO REDIS');
+  console.log('🎯 SEEDING GHOST DRIVERS TO REDIS (CLUSTER BOMB MODE)');
   console.log('='.repeat(80));
   console.log(`Target: ${GHOST_COUNT.toLocaleString()} ghost drivers`);
   console.log(`Redis: ${REDIS_URL}`);
+  console.log(`Strategy: HIGH DENSITY (${LOCATION_CONFIG.latDelta}° spread = ~0.5km radius)`);
+  console.log(`Scenario: Concert venue / Airport hotspot (worst case for GEOSEARCH)`);
   console.log('='.repeat(80) + '\n');
 
   const BATCH_SIZE = 1000;

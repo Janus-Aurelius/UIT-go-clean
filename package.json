@@ -19,6 +19,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "dotenv": "^17.2.3",
+    "h3-js": "^4.3.0",
     "joi": "^18.0.1",
     "mqtt": "^5.14.1",
     "protoc": "^33.0.0",

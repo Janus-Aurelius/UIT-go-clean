@@ -140,4 +140,150 @@ export class RedisService implements OnModuleInit {
       distance: parseFloat(r.distance),
     }));
   }
+
+  // ========================================================================
+  // H3 Virtual Sharding Methods
+  // ========================================================================
+
+  /**
+   * Add driver to H3 smart bucket with rating as score
+   */
+  async h3AddDriver(
+    bucketKey: string,
+    driverId: string,
+    rating: number,
+    metadata: { lat: number; lng: number; hex: string; shard: number }
+  ): Promise<void> {
+    const multi = this.client.multi();
+
+    // Add to sorted set (rating as score)
+    multi.zAdd(bucketKey, { score: rating, value: driverId });
+    multi.expire(bucketKey, 30); // 30s TTL
+
+    // Store metadata
+    const metaKey = `driver:${driverId}:h3meta`;
+    multi.hSet(metaKey, {
+      lat: metadata.lat.toString(),
+      lng: metadata.lng.toString(),
+      hex: metadata.hex,
+      shard: metadata.shard.toString(),
+      rating: rating.toString(),
+      updated: Date.now().toString(),
+    });
+    multi.expire(metaKey, 30);
+
+    await multi.exec();
+  }
+
+  /**
+   * Remove driver from old H3 bucket
+   */
+  async h3RemoveDriver(oldBucketKey: string, driverId: string): Promise<void> {
+    await this.client.zRem(oldBucketKey, driverId);
+  }
+
+  /**
+   * Get driver's current H3 metadata
+   */
+  async h3GetDriverMeta(driverId: string): Promise<{
+    lat: number;
+    lng: number;
+    hex: string;
+    shard: number;
+    rating: number;
+    updated: number;
+  } | null> {
+    const metaKey = `driver:${driverId}:h3meta`;
+    const data = await this.client.hGetAll(metaKey);
+
+    if (!data || Object.keys(data).length === 0) return null;
+
+    return {
+      lat: parseFloat(data.lat),
+      lng: parseFloat(data.lng),
+      hex: data.hex,
+      shard: parseInt(data.shard),
+      rating: parseFloat(data.rating),
+      updated: parseInt(data.updated),
+    };
+  }
+
+  /**
+   * Query multiple H3 buckets in parallel
+   * Returns top N drivers from each bucket (sorted by rating DESC)
+   */
+  async h3GetTopDriversFromBuckets(
+    bucketKeys: string[],
+    topN: number = 10
+  ): Promise<Map<string, Array<{ driverId: string; rating: number }>>> {
+    if (bucketKeys.length === 0) return new Map();
+
+    const multi = this.client.multi();
+
+    for (const bucketKey of bucketKeys) {
+      // Use zRangeWithScores for proper typing
+      multi.zRangeWithScores(bucketKey, 0, topN - 1, { REV: true });
+    }
+
+    const results = await multi.exec();
+    const driversByBucket = new Map();
+
+    for (let i = 0; i < bucketKeys.length; i++) {
+      const bucketKey = bucketKeys[i];
+      const rawResult = results[i];
+
+      if (!rawResult || !Array.isArray(rawResult) || rawResult.length === 0) {
+        driversByBucket.set(bucketKey, []);
+        continue;
+      }
+
+      const drivers = [];
+      // zRangeWithScores returns array of {value, score} objects
+      for (const item of rawResult as Array<{ value: string; score: number }>) {
+        drivers.push({
+          driverId: item.value,
+          rating: item.score,
+        });
+      }
+
+      driversByBucket.set(bucketKey, drivers);
+    }
+
+    return driversByBucket;
+  }
+
+  /**
+   * Batch get driver metadata
+   */
+  async h3GetDriverMetaBatch(
+    driverIds: string[]
+  ): Promise<Map<string, { lat: number; lng: number; rating: number }>> {
+    if (driverIds.length === 0) return new Map();
+
+    const multi = this.client.multi();
+
+    for (const driverId of driverIds) {
+      const metaKey = `driver:${driverId}:h3meta`;
+      multi.hGetAll(metaKey);
+    }
+
+    const results = await multi.exec();
+    const metadataMap = new Map();
+
+    for (let i = 0; i < driverIds.length; i++) {
+      const driverId = driverIds[i];
+      const data = results[i];
+
+      if (data && typeof data === 'object' && Object.keys(data).length > 0) {
+        const dataObj = data as any;
+        metadataMap.set(driverId, {
+          lat: parseFloat(dataObj.lat),
+          lng: parseFloat(dataObj.lng),
+          rating: parseFloat(dataObj.rating),
+        });
+      }
+    }
+
+    return metadataMap;
+  }
 }

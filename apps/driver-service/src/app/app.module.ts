@@ -5,6 +5,7 @@ import { DriverModule } from '../driver/driver.module';
 import { PrismaModule } from '../common/prisma/prisma.module';
 import { RedisModule } from '../common/redis/redis.module';
 import { MqttModule } from '../common/mqtt/mqtt.module';
+import { H3Module } from '../common/h3/h3.module';
 import { ConfigModule } from '@nestjs/config';
 
 @Module({
@@ -16,6 +17,7 @@ import { ConfigModule } from '@nestjs/config';
     PrismaModule,
     RedisModule,
     MqttModule,
+    H3Module,
   ],
   controllers: [AppController],
   providers: [AppService],

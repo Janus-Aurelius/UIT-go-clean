@@ -70,10 +70,13 @@ const TEST_START_TIME = Date.now();
 
 // Test configuration
 
-// HTTP Test: More aggressive defaults since we're not limited by MQTT connections
-// Total (Users + Drivers) should be <= 80 to stay within Clerk free tier quota (100 limit with buffer)
-const NUM_USERS = parseInt(__ENV.NUM_USERS || '60');
-const NUM_DRIVERS = parseInt(__ENV.NUM_DRIVERS || '40');
+// ========================================================================
+// AGGRESSIVE CONFIGURATION (Beehive Mode)
+// ========================================================================
+// ULTRA-AGGRESSIVE: 100 users + 100 drivers (pushing Clerk limits)
+// GOAL: Maximum concurrent load to demonstrate H3 superiority
+const NUM_USERS = parseInt(__ENV.NUM_USERS || '100');
+const NUM_DRIVERS = parseInt(__ENV.NUM_DRIVERS || '100');
 const DURATION = __ENV.DURATION || '10m';
 
 // HIGH-DENSITY TESTING: Force drivers and users to spawn in same area for matching
@@ -357,9 +360,14 @@ export function userLifecycleScenario(data) {
   // ========================================================================
   // DRIVER SEARCH METRICS
   // ========================================================================
+  // ========================================================================
+  // AGGRESSIVE SEARCH: Request 5000 drivers (forces Redis to sort massive list)
+  // ========================================================================
+  // This creates maximum CPU load on Redis GEOSEARCH
+  // H3 should handle this effortlessly by only querying relevant buckets
   const searchStart = Date.now();
   const searchResponse = http.get(
-    `${config.baseUrl}/drivers/search?latitude=${pickupLocation.latitude}&longitude=${pickupLocation.longitude}&radiusKm=${config.location.radiusKm}&count=1000`,
+    `${config.baseUrl}/drivers/search?latitude=${pickupLocation.latitude}&longitude=${pickupLocation.longitude}&radiusKm=${config.location.radiusKm}&count=5000`,
     {
       headers: { 'Content-Type': 'application/json' },
       timeout: config.timeouts.search,
@@ -520,13 +528,52 @@ export function driverHttpScenario(data) {
     connectedVUs.add(__VU);
   }
 
-  // 1. Calculate new location (same logic as before)
-  const movementDelta = driverData.state === DriverState.BUSY ? 0.003 : 0.001;
-  const newLocation = nearbyLocation(
-    driverData.location.latitude,
-    driverData.location.longitude,
-    movementDelta
-  );
+  // ========================================================================
+  // 🐝 THE BEEHIVE ALGORITHM (Anchored Random Walk)
+  // ========================================================================
+  // GOAL:
+  // 1. Generate WRITE LOAD: Drivers move → Redis/H3 must recalculate indexes
+  // 2. Maintain READ LOAD: Drivers stay clustered → Search bottleneck persists
+  //
+  // Strategy: "Leashed Random Walk"
+  // - Drivers move randomly (simulates traffic)
+  // - If they drift too far from center, pull them back
+  // - Maintains 500m cluster radius throughout entire test
+  //
+  // Why better than stationary?
+  // - Tests both Read AND Write performance
+  // - More realistic (drivers are always moving in real world)
+  // - Forces H3 index recalculation (tests h3RemoveDriver/h3AddDriver)
+  // ========================================================================
+
+  // Calculate drift from concert venue center
+  const driftLat = driverData.location.latitude - CENTRAL_HCMC.latitude;
+  const driftLng = driverData.location.longitude - CENTRAL_HCMC.longitude;
+  const driftDistance = Math.sqrt(driftLat * driftLat + driftLng * driftLng);
+
+  // TIGHT LEASH: 0.005° ≈ 500m radius (Taylor Swift concert scenario)
+  const MAX_DRIFT = 0.005;
+
+  let latMove, lngMove;
+
+  if (driftDistance > MAX_DRIFT) {
+    // 🛑 TOO FAR! Pull driver back toward center
+    // Ensures cluster never disperses (read bottleneck maintained)
+    latMove = -driftLat * 0.2;
+    lngMove = -driftLng * 0.2;
+  } else {
+    // 🚗 INSIDE ZONE: Random traffic movement
+    // Simulates natural driver movement (cruising, lane changes)
+    // Small enough to keep cluster tight, large enough to force index updates
+    const speed = driverData.state === DriverState.BUSY ? 0.0004 : 0.0002;
+    latMove = (Math.random() - 0.5) * speed;
+    lngMove = (Math.random() - 0.5) * speed;
+  }
+
+  const newLocation = {
+    latitude: driverData.location.latitude + latMove,
+    longitude: driverData.location.longitude + lngMove,
+  };
 
   // 2. Construct HTTP Payload
   const payload = JSON.stringify({
@@ -572,8 +619,11 @@ export function driverHttpScenario(data) {
     );
   }
 
-  // 5. More aggressive update frequency for HTTP (2Hz instead of 1Hz)
-  sleep(0.5);
+  // 5. ULTRA-AGGRESSIVE: 10Hz update rate (10 updates per second)
+  // This creates massive write load on Redis/H3
+  // Real world: ~0.2Hz (every 5 seconds)
+  // Load test: 50x more aggressive to stress the system
+  sleep(0.1);
 }
 
 export function teardown(data) {

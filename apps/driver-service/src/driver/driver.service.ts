@@ -12,12 +12,14 @@ import {
 import { DriverProfile, VehicleType } from '../../generated/prisma';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { RedisService } from '../common/redis/redis.service';
+import { H3Service } from '../common/h3/h3.service';
 
 @Injectable()
 export class DriverService {
   constructor(
     private prismaService: PrismaService,
-    private redisService: RedisService
+    private redisService: RedisService,
+    private h3Service: H3Service
   ) {}
 
   private mapToResponse(profile: DriverProfile): DriverProfileResponse {
@@ -173,47 +175,132 @@ export class DriverService {
   }
 
   async updateLocation(data: UpdateLocationRequest) {
-    // 🟢 GHOST BYPASS: Always update Redis (for geospatial bottleneck test)
-    // But skip database update for ghost drivers (to avoid Clerk/NeonDB costs)
-    await this.redisService.geoadd(
-      'drivers',
-      data.longitude,
-      data.latitude,
-      data.driverId
-    );
+    const useH3 = process.env.USE_H3 === 'true';
 
-    if (data.driverId.startsWith('ghost:')) {
-      // Return fake profile without hitting database
-      return {
-        userId: data.driverId,
-        name: 'Ghost Driver',
-        email: `${data.driverId}@ghost.test`,
-        phone: '+1000000000',
-        vehicleType: VehicleType.MOTOBIKE,
-        licensePlate: 'GHOST-001',
-        licenseNumber: 'DL-GHOST',
-        status: DriverStatusEnum.ONLINE,
-        rating: 4.8,
-        balance: 0.0,
-        lastLat: data.latitude,
-        lastLng: data.longitude,
-      };
-    }
+    if (!useH3) {
+      // PRE-TUNING MODE: Keep existing Redis GEO logic
+      await this.redisService.geoadd(
+        'drivers',
+        data.longitude,
+        data.latitude,
+        data.driverId
+      );
 
-    // Only update database for real drivers
-    const profile = await this.prismaService.$transaction(async (db) => {
-      return db.driverProfile.update({
-        where: {
+      if (data.driverId.startsWith('ghost:')) {
+        // Return fake profile without hitting database
+        return {
           userId: data.driverId,
-        },
-        data: {
+          name: 'Ghost Driver',
+          email: `${data.driverId}@ghost.test`,
+          phone: '+1000000000',
+          vehicleType: VehicleType.MOTOBIKE,
+          licensePlate: 'GHOST-001',
+          licenseNumber: 'DL-GHOST',
+          status: DriverStatusEnum.ONLINE,
+          rating: 4.8,
+          balance: 0.0,
           lastLat: data.latitude,
           lastLng: data.longitude,
-        },
+        };
+      }
+
+      // Only update database for real drivers
+      const profile = await this.prismaService.$transaction(async (db) => {
+        return db.driverProfile.update({
+          where: {
+            userId: data.driverId,
+          },
+          data: {
+            lastLat: data.latitude,
+            lastLng: data.longitude,
+          },
+        });
       });
+
+      return this.mapToResponse(profile);
+    }
+
+    // ========================================================================
+    // POST-TUNING MODE: H3 Virtual Sharding
+    // ========================================================================
+
+    const startTime = Date.now();
+
+    // Get driver rating
+    let rating = 4.8; // Default for ghosts
+    if (!data.driverId.startsWith('ghost:')) {
+      const profile = await this.prismaService.driverProfile.findUnique({
+        where: { userId: data.driverId },
+        select: { rating: true },
+      });
+      rating = profile ? Number(profile.rating) : 4.5;
+    }
+
+    // Calculate new H3 bucket
+    const newHex = this.h3Service.latLngToCell(
+      data.latitude,
+      data.longitude,
+      H3Service.BUCKET_RESOLUTION
+    );
+    const newShardId = this.h3Service.getShardId(data.latitude, data.longitude);
+    const newBucketKey = this.h3Service.getSmartBucketKey(
+      data.latitude,
+      data.longitude
+    );
+
+    // Check if driver moved between hexes
+    const oldMeta = await this.redisService.h3GetDriverMeta(data.driverId);
+
+    if (oldMeta && oldMeta.hex !== newHex) {
+      const oldBucketKey = `shard:${oldMeta.shard}:hex:${oldMeta.hex}`;
+      await this.redisService.h3RemoveDriver(oldBucketKey, data.driverId);
+      console.log(`[H3] Driver ${data.driverId} moved: ${oldMeta.hex} -> ${newHex}`);
+    }
+
+    // Add to new bucket
+    await this.redisService.h3AddDriver(newBucketKey, data.driverId, rating, {
+      lat: data.latitude,
+      lng: data.longitude,
+      hex: newHex,
+      shard: newShardId,
     });
 
-    return this.mapToResponse(profile);
+    const duration = Date.now() - startTime;
+    console.log(
+      `[H3] Updated ${data.driverId} | Bucket: ${newBucketKey} | ` +
+        `Rating: ${rating} | Duration: ${duration}ms`
+    );
+
+    // Update database for real drivers
+    if (!data.driverId.startsWith('ghost:')) {
+      const profile = await this.prismaService.$transaction(async (db) => {
+        return db.driverProfile.update({
+          where: {
+            userId: data.driverId,
+          },
+          data: {
+            lastLat: data.latitude,
+            lastLng: data.longitude,
+          },
+        });
+      });
+      return this.mapToResponse(profile);
+    }
+
+    return {
+      userId: data.driverId,
+      name: 'Ghost Driver',
+      email: `${data.driverId}@ghost.test`,
+      phone: '+1000000000',
+      vehicleType: VehicleType.MOTOBIKE,
+      licensePlate: 'GHOST-001',
+      licenseNumber: 'DL-GHOST',
+      status: DriverStatusEnum.ONLINE,
+      rating: rating,
+      balance: 0.0,
+      lastLat: data.latitude,
+      lastLng: data.longitude,
+    };
   }
 
   /**
@@ -236,34 +323,37 @@ export class DriverService {
   async searchNearbyDrivers(data: NearbyQuery): Promise<NearbyDriverResponse> {
     const useH3 = process.env.USE_H3 === 'true';
 
-    if (useH3) {
-      // POST-TUNING: Uber H3 implementation (to be added later)
-      // This will partition drivers into hex cells for efficient lookup
-      throw new Error(
-        'H3 implementation not yet available. Set USE_H3=false to use pre-tuning mode.'
-      );
-    }
+    if (!useH3) {
 
     // ========================================================================
     // PRE-TUNING MODE: Redis Geo with High COUNT + In-Memory Filtering
     // ========================================================================
     //
-    // Strategy: Fetch a LARGE number of drivers (up to 1000) to find real
-    // drivers hidden among 100k ghost drivers. This creates the bottleneck:
-    // - Network: Large data transfer from Redis to App
-    // - Redis CPU: Sorting/filtering 100k+ drivers
-    // - App CPU: In-memory filtering of results
+    // ⚠️ CLUSTER BOMB SCENARIO: 100k drivers in 0.5km radius (concert/airport)
+    //
+    // Why this is SLOW:
+    // 1. Redis GEOSEARCH can't use spatial filtering (all drivers in same geohash)
+    // 2. Must calculate Haversine distance for ALL 100k drivers
+    // 3. Must sort ALL 100k drivers by distance
+    // 4. We ask for 5000 results (greedy query - common in legacy systems)
+    // 5. Network transfer of 5000 driver records (~250KB)
+    // 6. In-memory filtering in application code
+    //
+    // Result: 500ms-2000ms latency (HEROIC BASELINE for comparison)
     //
     // This bottleneck will be eliminated in post-tuning with H3.
 
+    // ⚠️ GREEDY QUERY: Ask for 5000 drivers even though we only need 10
+    // This simulates legacy systems that over-fetch "just in case"
     const maxSearchCount = parseInt(
-      process.env.MAX_DRIVER_SEARCH_COUNT || '1000'
+      process.env.MAX_DRIVER_SEARCH_COUNT || '5000'  // Increased from 1000
     );
     const preferRealDrivers = process.env.PREFER_REAL_DRIVERS !== 'false';
 
     const searchStart = Date.now();
 
-    // Fetch large number of drivers (THE BOTTLENECK)
+    // 💣 THE BOTTLENECK: Force Redis to sort and return 5000 drivers
+    // Even though we only need 10, this is common in legacy code
     const allResults = await this.redisService.geosearchLarge(
       'drivers',
       data.longitude,
@@ -319,6 +409,138 @@ export class DriverService {
     return {
       list: results.map((r) => ({
         driverId: r.member,
+        distance: r.distance.toString(),
+      })),
+    };
+    }
+
+    // ========================================================================
+    // POST-TUNING MODE: H3 K-Ring Expansion
+    // ========================================================================
+
+    const searchStart = Date.now();
+    const requestedCount = data.count || 10;
+    const maxKRing = this.calculateMaxKRing(data.radiusKm);
+
+    console.log(
+      `[H3 SEARCH] Start | Origin: (${data.latitude}, ${data.longitude}) | ` +
+        `Radius: ${data.radiusKm}km | Max K: ${maxKRing} | Requested: ${requestedCount}`
+    );
+
+    // Get origin hex at resolution 9
+    const originHex = this.h3Service.latLngToCell(
+      data.latitude,
+      data.longitude,
+      H3Service.BUCKET_RESOLUTION
+    );
+
+    const foundDrivers: Array<{
+      driverId: string;
+      rating: number;
+      lat: number;
+      lng: number;
+      distance: number;
+    }> = [];
+
+    const queriedBuckets = new Set<string>();
+    let totalBucketsQueried = 0;
+    let totalDriversFound = 0;
+
+    // K-ring expansion with early exit
+    for (let k = 0; k <= maxKRing; k++) {
+      const ringHexes = this.h3Service.gridDisk(originHex, k);
+      const newHexes = ringHexes.filter((hex) => !queriedBuckets.has(hex));
+
+      if (newHexes.length === 0) continue;
+
+      // Convert hexes to bucket keys (calculate shard per hex)
+      const bucketKeys: string[] = [];
+      for (const hex of newHexes) {
+        // CRITICAL: Calculate shard per hex, not per origin
+        const hexCenter = this.h3Service.cellToLatLng(hex);
+        const shardId = this.h3Service.getShardId(hexCenter.lat, hexCenter.lng);
+        const key = `shard:${shardId}:hex:${hex}`;
+        bucketKeys.push(key);
+      }
+
+      newHexes.forEach((hex) => queriedBuckets.add(hex));
+      totalBucketsQueried += bucketKeys.length;
+
+      // Query all buckets in parallel
+      const driversByBucket = await this.redisService.h3GetTopDriversFromBuckets(
+        bucketKeys,
+        requestedCount * 2
+      );
+
+      // Collect driver IDs
+      const driverIds: string[] = [];
+      for (const drivers of driversByBucket.values()) {
+        driverIds.push(...drivers.map((d) => d.driverId));
+      }
+
+      totalDriversFound += driverIds.length;
+
+      if (driverIds.length === 0) {
+        console.log(`[H3 SEARCH] K=${k} | No drivers in ${bucketKeys.length} buckets`);
+        continue;
+      }
+
+      // Batch fetch metadata
+      const metadataMap = await this.redisService.h3GetDriverMetaBatch(driverIds);
+
+      // Calculate distances and filter by radius
+      for (const [driverId, metadata] of metadataMap) {
+        const distance = this.haversineDistance(
+          data.latitude,
+          data.longitude,
+          metadata.lat,
+          metadata.lng
+        );
+
+        if (distance <= data.radiusKm) {
+          foundDrivers.push({
+            driverId,
+            rating: metadata.rating,
+            lat: metadata.lat,
+            lng: metadata.lng,
+            distance,
+          });
+        }
+      }
+
+      console.log(
+        `[H3 SEARCH] K=${k} | Buckets: ${bucketKeys.length} | ` +
+          `Found: ${driverIds.length} | Within radius: ${foundDrivers.length}/${requestedCount}`
+      );
+
+      // Early exit
+      if (foundDrivers.length >= requestedCount) {
+        console.log(`[H3 SEARCH] Early exit at K=${k}`);
+        break;
+      }
+    }
+
+    const searchDuration = Date.now() - searchStart;
+
+    // Sort by distance ASC, then rating DESC
+    foundDrivers.sort((a, b) => {
+      if (Math.abs(a.distance - b.distance) < 0.001) {
+        return b.rating - a.rating;
+      }
+      return a.distance - b.distance;
+    });
+
+    const results = foundDrivers.slice(0, requestedCount);
+
+    console.log(
+      `[H3 SEARCH] Complete | Buckets: ${totalBucketsQueried} | ` +
+        `Total: ${totalDriversFound} | Returned: ${results.length} | ` +
+        `Duration: ${searchDuration}ms`
+    );
+
+    return {
+      list: results.map((r) => ({
+        driverId: r.driverId,
         distance: r.distance.toString(),
       })),
     };
@@ -437,5 +659,35 @@ export class DriverService {
         message: error.message || 'Failed to delete driver',
       };
     }
+  }
+
+  /**
+   * Calculate max K-ring based on search radius
+   * Fixed at K=5 for demo focus (91 hexes, ~1.5km radius)
+   */
+  private calculateMaxKRing(radiusKm: number): number {
+    return 5; // Cap at K=5 per user preference
+  }
+
+  /**
+   * Haversine distance calculation (returns km)
+   */
+  private haversineDistance(
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number
+  ): number {
+    const R = 6371; // Earth radius in km
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((lat1 * Math.PI) / 180) *
+        Math.cos((lat2 * Math.PI) / 180) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
   }
 }

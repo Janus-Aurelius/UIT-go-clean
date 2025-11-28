@@ -114,9 +114,9 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - DATABASE_CONNECTION_LIMIT=2 # ⚠️ Critical for NeonDB free tier (2 * 2 replicas = 4 conn)
       - NODE_OPTIONS=--max-old-space-size=280 # ✅ Bumped to 280 for safety buffer
-      # Pre-tuning Redis Geo bottleneck configuration
+      # Pre-tuning Redis Geo bottleneck configuration (CLUSTER BOMB scenario)
       - USE_H3=false # false = pre-tuning (Redis Geo), true = post-tuning (H3)
-      - MAX_DRIVER_SEARCH_COUNT=1000 # Fetch up to 1000 drivers to demonstrate bottleneck
+      - MAX_DRIVER_SEARCH_COUNT=5000 # 💣 GREEDY QUERY: Fetch 5000 to maximize bottleneck
       - PREFER_REAL_DRIVERS=true # Prioritize real drivers over ghosts in results
     env_file:
       - ./apps/driver-service/.env
