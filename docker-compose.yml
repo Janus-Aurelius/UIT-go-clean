@@ -44,6 +44,7 @@ services:
       - NODE_ENV=production
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - NODE_OPTIONS=--max-old-space-size=280 # ✅ Bumped to 280 to prevent OOM during high traffic aggregation
+      - ALLOW_GHOST_USERS=true # ✅ Enable ghost users for load testing (bypasses Clerk API and database)
     depends_on:
       redis:
         condition: service_healthy
@@ -115,9 +116,10 @@ services:
       - DATABASE_CONNECTION_LIMIT=2 # ⚠️ Critical for NeonDB free tier (2 * 2 replicas = 4 conn)
       - NODE_OPTIONS=--max-old-space-size=280 # ✅ Bumped to 280 for safety buffer
       # Pre-tuning Redis Geo bottleneck configuration (CLUSTER BOMB scenario)
-      - USE_H3=false # false = pre-tuning (Redis Geo), true = post-tuning (H3)
+      - USE_H3=true # false = pre-tuning (Redis Geo), true = post-tuning (H3)
       - MAX_DRIVER_SEARCH_COUNT=5000 # 💣 GREEDY QUERY: Fetch 5000 to maximize bottleneck
       - PREFER_REAL_DRIVERS=true # Prioritize real drivers over ghosts in results
+      - H3_BATCH_SIZE=5 # 🔧 H3 batch size per bucket (fallback when dynamic sizing exceeds this)
     env_file:
       - ./apps/driver-service/.env
     # ports:

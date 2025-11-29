@@ -47,6 +47,18 @@ export class UserService {
   }
 
   async findOne(userId: string): Promise<UserProfileResponse> {
+    // Ghost user safety net - return synthetic data for load testing
+    if (userId.startsWith('ghost:')) {
+      return {
+        userId: userId,
+        fullName: 'Ghost User',
+        email: `${userId}@ghost.test`,
+        phone: '+1000000000',
+        balance: 0.0,
+      };
+    }
+
+    // Real users: database query
     const profile = await this.db.userProfile.findUnique({
       where: {
         userId,
@@ -91,7 +103,8 @@ export class UserService {
   ): Promise<UserProfileResponse> {
     const updateData: any = {};
 
-    if (request.full_name !== undefined) updateData.fullName = request.full_name;
+    if (request.full_name !== undefined)
+      updateData.fullName = request.full_name;
     if (request.email !== undefined) updateData.email = request.email;
     if (request.phone !== undefined) updateData.phone = request.phone;
     if (request.balance !== undefined) updateData.balance = request.balance;

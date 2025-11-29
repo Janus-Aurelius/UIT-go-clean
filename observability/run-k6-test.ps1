@@ -170,6 +170,37 @@ $env:K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM = "false"
 $env:BASE_URL = "http://localhost:3000/api/v1"
 $env:MQTT_BROKER_URL = "mqtt://127.0.0.1:1883"  # Legacy var, not used in HTTP tests
 
+# ============================================================================
+# TEST CONFIGURATION
+# ============================================================================
+# Clear any existing NUM_USERS/NUM_DRIVERS from the PowerShell session
+# This ensures the DEFAULT_CONFIG in performance-test.js is always used
+# Unless you explicitly want to override them (see below)
+Remove-Item Env:\NUM_USERS -ErrorAction SilentlyContinue
+Remove-Item Env:\NUM_DRIVERS -ErrorAction SilentlyContinue
+
+# Load test configuration
+# To edit test scale, modify DEFAULT_CONFIG in performance-test.js (lines 79-84)
+# 
+# To override temporarily, uncomment and set these before running:
+# $env:NUM_USERS = "50"
+# $env:NUM_DRIVERS = "50"
+if (-not $env:USE_GHOST_USERS) { $env:USE_GHOST_USERS = "true" }  # Enable ghost users by default
+
+# Display test configuration
+Write-ColorMessage "`nTest Configuration:" $ColorBlue
+Write-ColorMessage "  USE_GHOST_USERS: $($env:USE_GHOST_USERS)" $ColorCyan
+if ($env:NUM_USERS) { 
+    Write-ColorMessage "  NUM_USERS:       $($env:NUM_USERS) (override from script)" $ColorYellow 
+} else { 
+    Write-ColorMessage "  NUM_USERS:       Using DEFAULT_CONFIG from performance-test.js" $ColorGreen 
+}
+if ($env:NUM_DRIVERS) { 
+    Write-ColorMessage "  NUM_DRIVERS:     $($env:NUM_DRIVERS) (override from script)" $ColorYellow 
+} else { 
+    Write-ColorMessage "  NUM_DRIVERS:     Using DEFAULT_CONFIG from performance-test.js" $ColorGreen 
+}
+
 # Build and execute k6 command
 Write-ColorMessage "`nExecuting k6 test..." $ColorBlue
 Write-ColorMessage "Command: k6 run --out experimental-prometheus-rw $TestScript" $ColorCyan

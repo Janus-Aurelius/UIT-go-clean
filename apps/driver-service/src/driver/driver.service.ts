@@ -254,7 +254,9 @@ export class DriverService {
     if (oldMeta && oldMeta.hex !== newHex) {
       const oldBucketKey = `shard:${oldMeta.shard}:hex:${oldMeta.hex}`;
       await this.redisService.h3RemoveDriver(oldBucketKey, data.driverId);
-      console.log(`[H3] Driver ${data.driverId} moved: ${oldMeta.hex} -> ${newHex}`);
+      console.log(
+        `[H3] Driver ${data.driverId} moved: ${oldMeta.hex} -> ${newHex}`
+      );
     }
 
     // Add to new bucket
@@ -307,15 +309,16 @@ export class DriverService {
    * Search for nearby drivers
    *
    * PRE-TUNING MODE (USE_H3=false):
-   * - Fetches up to MAX_DRIVER_SEARCH_COUNT (default 1000) drivers from Redis
+   * - Fetches up to MAX_DRIVER_SEARCH_COUNT (default 5000) drivers from Redis
    * - Filters real drivers from ghosts in application memory
    * - Returns real drivers first, ghosts as fallback (if PREFER_REAL_DRIVERS=true)
    * - Demonstrates Redis GEOSEARCH bottleneck with 100k+ ghost drivers
    *
    * POST-TUNING MODE (USE_H3=true):
    * - Uses Uber H3 spatial indexing for efficient driver lookup
-   * - Only fetches drivers in relevant hex cells
-   * - Avoids large result sets and in-memory filtering
+   * - Progressive fetch: small batches (5 drivers) per hex bucket
+   * - K-ring expansion with early exit when enough drivers found
+   * - Avoids large result sets and greedy over-fetching
    *
    * @param data NearbyQuery with location and search parameters
    * @returns NearbyDriverResponse with list of nearby drivers
@@ -324,94 +327,93 @@ export class DriverService {
     const useH3 = process.env.USE_H3 === 'true';
 
     if (!useH3) {
+      // ========================================================================
+      // PRE-TUNING MODE: Redis Geo with High COUNT + In-Memory Filtering
+      // ========================================================================
+      //
+      // ⚠️ CLUSTER BOMB SCENARIO: 100k drivers in 0.5km radius (concert/airport)
+      //
+      // Why this is SLOW:
+      // 1. Redis GEOSEARCH can't use spatial filtering (all drivers in same geohash)
+      // 2. Must calculate Haversine distance for ALL 100k drivers
+      // 3. Must sort ALL 100k drivers by distance
+      // 4. We ask for 5000 results (greedy query - common in legacy systems)
+      // 5. Network transfer of 5000 driver records (~250KB)
+      // 6. In-memory filtering in application code
+      //
+      // Result: 500ms-2000ms latency (HEROIC BASELINE for comparison)
+      //
+      // This bottleneck will be eliminated in post-tuning with H3.
 
-    // ========================================================================
-    // PRE-TUNING MODE: Redis Geo with High COUNT + In-Memory Filtering
-    // ========================================================================
-    //
-    // ⚠️ CLUSTER BOMB SCENARIO: 100k drivers in 0.5km radius (concert/airport)
-    //
-    // Why this is SLOW:
-    // 1. Redis GEOSEARCH can't use spatial filtering (all drivers in same geohash)
-    // 2. Must calculate Haversine distance for ALL 100k drivers
-    // 3. Must sort ALL 100k drivers by distance
-    // 4. We ask for 5000 results (greedy query - common in legacy systems)
-    // 5. Network transfer of 5000 driver records (~250KB)
-    // 6. In-memory filtering in application code
-    //
-    // Result: 500ms-2000ms latency (HEROIC BASELINE for comparison)
-    //
-    // This bottleneck will be eliminated in post-tuning with H3.
+      // ⚠️ GREEDY QUERY: Ask for 5000 drivers even though we only need 10
+      // This simulates legacy systems that over-fetch "just in case"
+      const maxSearchCount = parseInt(
+        process.env.MAX_DRIVER_SEARCH_COUNT || '5000' // Increased from 1000
+      );
+      const preferRealDrivers = process.env.PREFER_REAL_DRIVERS !== 'false';
 
-    // ⚠️ GREEDY QUERY: Ask for 5000 drivers even though we only need 10
-    // This simulates legacy systems that over-fetch "just in case"
-    const maxSearchCount = parseInt(
-      process.env.MAX_DRIVER_SEARCH_COUNT || '5000'  // Increased from 1000
-    );
-    const preferRealDrivers = process.env.PREFER_REAL_DRIVERS !== 'false';
+      const searchStart = Date.now();
 
-    const searchStart = Date.now();
+      // 💣 THE BOTTLENECK: Force Redis to sort and return 5000 drivers
+      // Even though we only need 10, this is common in legacy code
+      const allResults = await this.redisService.geosearchLarge(
+        'drivers',
+        data.longitude,
+        data.latitude,
+        data.radiusKm,
+        maxSearchCount
+      );
 
-    // 💣 THE BOTTLENECK: Force Redis to sort and return 5000 drivers
-    // Even though we only need 10, this is common in legacy code
-    const allResults = await this.redisService.geosearchLarge(
-      'drivers',
-      data.longitude,
-      data.latitude,
-      data.radiusKm,
-      maxSearchCount
-    );
+      const searchDuration = Date.now() - searchStart;
 
-    const searchDuration = Date.now() - searchStart;
+      // Separate real drivers from ghosts
+      const realDrivers = allResults.filter(
+        (r) => !r.member.startsWith('ghost:')
+      );
+      const ghostDrivers = allResults.filter((r) =>
+        r.member.startsWith('ghost:')
+      );
 
-    // Separate real drivers from ghosts
-    const realDrivers = allResults.filter(
-      (r) => !r.member.startsWith('ghost:')
-    );
-    const ghostDrivers = allResults.filter((r) =>
-      r.member.startsWith('ghost:')
-    );
+      // Log performance metrics for analysis
+      console.log(
+        `[DRIVER SEARCH] Pre-tuning mode | ` +
+          `Total: ${allResults.length} | ` +
+          `Real: ${realDrivers.length} | ` +
+          `Ghosts: ${ghostDrivers.length} | ` +
+          `Duration: ${searchDuration}ms | ` +
+          `Requested: ${data.count}`
+      );
 
-    // Log performance metrics for analysis
-    console.log(
-      `[DRIVER SEARCH] Pre-tuning mode | ` +
-        `Total: ${allResults.length} | ` +
-        `Real: ${realDrivers.length} | ` +
-        `Ghosts: ${ghostDrivers.length} | ` +
-        `Duration: ${searchDuration}ms | ` +
-        `Requested: ${data.count}`
-    );
+      let results: Array<{ member: string; distance: number }>;
 
-    let results: Array<{ member: string; distance: number }>;
+      if (preferRealDrivers) {
+        // Prioritize real drivers, fill remaining slots with ghosts if needed
+        const realSlice = realDrivers.slice(0, data.count);
+        const remainingSlots = Math.max(0, data.count - realSlice.length);
+        const ghostSlice = ghostDrivers.slice(0, remainingSlots);
 
-    if (preferRealDrivers) {
-      // Prioritize real drivers, fill remaining slots with ghosts if needed
-      const realSlice = realDrivers.slice(0, data.count);
-      const remainingSlots = Math.max(0, data.count - realSlice.length);
-      const ghostSlice = ghostDrivers.slice(0, remainingSlots);
+        results = [...realSlice, ...ghostSlice];
 
-      results = [...realSlice, ...ghostSlice];
-
-      if (realSlice.length < data.count && ghostSlice.length > 0) {
+        if (realSlice.length < data.count && ghostSlice.length > 0) {
+          console.log(
+            `[DRIVER SEARCH] Only found ${realSlice.length} real drivers, ` +
+              `filled ${ghostSlice.length} slots with ghosts`
+          );
+        }
+      } else {
+        // No filtering - return raw results (includes ghosts)
+        results = allResults.slice(0, data.count);
         console.log(
-          `[DRIVER SEARCH] Only found ${realSlice.length} real drivers, ` +
-            `filled ${ghostSlice.length} slots with ghosts`
+          `[DRIVER SEARCH] PREFER_REAL_DRIVERS=false, returning mixed results`
         );
       }
-    } else {
-      // No filtering - return raw results (includes ghosts)
-      results = allResults.slice(0, data.count);
-      console.log(
-        `[DRIVER SEARCH] PREFER_REAL_DRIVERS=false, returning mixed results`
-      );
-    }
 
-    return {
-      list: results.map((r) => ({
-        driverId: r.member,
-        distance: r.distance.toString(),
-      })),
-    };
+      return {
+        list: results.map((r) => ({
+          driverId: r.member,
+          distance: r.distance.toString(),
+        })),
+      };
     }
 
     // ========================================================================
@@ -466,11 +468,29 @@ export class DriverService {
       newHexes.forEach((hex) => queriedBuckets.add(hex));
       totalBucketsQueried += bucketKeys.length;
 
-      // Query all buckets in parallel
-      const driversByBucket = await this.redisService.h3GetTopDriversFromBuckets(
-        bucketKeys,
-        requestedCount * 2
+      // ✅ DYNAMIC BATCH SIZING: Calculate how many drivers we still need
+      // Adapts batch size based on remaining need to prevent over-fetching
+      const stillNeeded = requestedCount - foundDrivers.length;
+      const fallbackBatchSize = parseInt(process.env.H3_BATCH_SIZE || '5');
+      const batchSize = Math.max(
+        1,
+        Math.min(
+          fallbackBatchSize,
+          Math.ceil(stillNeeded / bucketKeys.length)
+        )
       );
+
+      console.log(
+        `[H3 SEARCH] K=${k} | Still need: ${stillNeeded} | ` +
+          `Buckets: ${bucketKeys.length} | Dynamic batch size: ${batchSize} | ` +
+          `Fetching: ${batchSize * bucketKeys.length} drivers`
+      );
+
+      const driversByBucket =
+        await this.redisService.h3GetTopDriversFromBuckets(
+          bucketKeys,
+          batchSize
+        );
 
       // Collect driver IDs
       const driverIds: string[] = [];
@@ -481,12 +501,16 @@ export class DriverService {
       totalDriversFound += driverIds.length;
 
       if (driverIds.length === 0) {
-        console.log(`[H3 SEARCH] K=${k} | No drivers in ${bucketKeys.length} buckets`);
+        console.log(
+          `[H3 SEARCH] K=${k} | No drivers in ${bucketKeys.length} buckets`
+        );
         continue;
       }
 
       // Batch fetch metadata
-      const metadataMap = await this.redisService.h3GetDriverMetaBatch(driverIds);
+      const metadataMap = await this.redisService.h3GetDriverMetaBatch(
+        driverIds
+      );
 
       // Calculate distances and filter by radius
       for (const [driverId, metadata] of metadataMap) {
@@ -508,9 +532,15 @@ export class DriverService {
         }
       }
 
+      const fetchEfficiency =
+        driverIds.length > 0
+          ? ((foundDrivers.length / driverIds.length) * 100).toFixed(1)
+          : '0.0';
+
       console.log(
         `[H3 SEARCH] K=${k} | Buckets: ${bucketKeys.length} | ` +
-          `Found: ${driverIds.length} | Within radius: ${foundDrivers.length}/${requestedCount}`
+          `Fetched: ${driverIds.length} | Found in radius: ${foundDrivers.length}/${requestedCount} | ` +
+          `Efficiency: ${fetchEfficiency}%`
       );
 
       // Early exit
@@ -664,7 +694,10 @@ export class DriverService {
   /**
    * Calculate max K-ring based on search radius
    * Fixed at K=5 for demo focus (91 hexes, ~1.5km radius)
+   *
+   * @param radiusKm - Search radius in km (currently unused, fixed at K=5)
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private calculateMaxKRing(radiusKm: number): number {
     return 5; // Cap at K=5 per user preference
   }

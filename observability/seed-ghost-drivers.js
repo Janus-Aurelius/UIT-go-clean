@@ -40,11 +40,12 @@ const DEFAULT_GHOST_COUNT = 100000;
 //   - Only queries 5-10 cells instead of scanning 100k drivers
 // ============================================================================
 const LOCATION_CONFIG = {
-  baseLat: 10.7626,    // Thu Duc City center
-  baseLng: 106.6826,   // Thu Duc City center
-  latDelta: 0.005,     // ~0.5km radius (TIGHT CLUSTER - THE BOTTLENECK!)
-  lngDelta: 0.005,     // ~0.5km radius
+  baseLat: 10.8185, // Tan Son Nhat
+  baseLng: 106.6588,
+  latDelta: 0.005, // ~0.5km radius (TIGHT CLUSTER - THE BOTTLENECK!)
+  lngDelta: 0.005, // ~0.5km radius
   // NOTE: 0.009 degrees ≈ 1km. We use 0.005 to ensure ALL drivers are within search radius.
+  // CRITICAL: Must match performance-test.js CENTRAL_HCMC location for cluster bomb test
 };
 
 // Parse command line arguments
@@ -80,8 +81,12 @@ async function seedGhostDrivers(client) {
   console.log('='.repeat(80));
   console.log(`Target: ${GHOST_COUNT.toLocaleString()} ghost drivers`);
   console.log(`Redis: ${REDIS_URL}`);
-  console.log(`Strategy: HIGH DENSITY (${LOCATION_CONFIG.latDelta}° spread = ~0.5km radius)`);
-  console.log(`Scenario: Concert venue / Airport hotspot (worst case for GEOSEARCH)`);
+  console.log(
+    `Strategy: HIGH DENSITY (${LOCATION_CONFIG.latDelta}° spread = ~0.5km radius)`
+  );
+  console.log(
+    `Scenario: Concert venue / Airport hotspot (worst case for GEOSEARCH)`
+  );
   console.log('='.repeat(80) + '\n');
 
   const BATCH_SIZE = 1000;

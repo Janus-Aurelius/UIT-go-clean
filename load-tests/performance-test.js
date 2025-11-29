@@ -28,6 +28,7 @@
 
 import { check, sleep } from 'k6';
 import http from 'k6/http';
+import execution from 'k6/execution';
 // MQTT import removed - now using HTTP for driver updates
 import { config, nearbyLocation, getThinkTime } from './utils/config.js';
 import {
@@ -68,21 +69,37 @@ import {
 // Test start time for relative elapsed time tracking
 const TEST_START_TIME = Date.now();
 
-// Test configuration
+// ========================================================================
+// TEST CONFIGURATION - EDIT THESE VALUES
+// ========================================================================
+// You can change these defaults directly, OR override via environment:
+//   k6 run --env NUM_USERS=100 --env NUM_DRIVERS=100 performance-test.js
+// ========================================================================
+
+// 🎯 LOAD CONFIGURATION (Edit these to change test scale)
+const DEFAULT_CONFIG = {
+  NUM_USERS: 100, // Number of concurrent users making trip requests
+  NUM_DRIVERS: 100, // Number of drivers sending location updates
+  DURATION: '10m', // Test duration (sustained load phase)
+};
+
+// Allow environment overrides (for automation/CI)
+const NUM_USERS = parseInt(
+  __ENV.NUM_USERS || DEFAULT_CONFIG.NUM_USERS.toString()
+);
+const NUM_DRIVERS = parseInt(
+  __ENV.NUM_DRIVERS || DEFAULT_CONFIG.NUM_DRIVERS.toString()
+);
+const DURATION = __ENV.DURATION || DEFAULT_CONFIG.DURATION;
 
 // ========================================================================
-// AGGRESSIVE CONFIGURATION (Beehive Mode)
+// GEOGRAPHIC CONFIGURATION
 // ========================================================================
-// ULTRA-AGGRESSIVE: 100 users + 100 drivers (pushing Clerk limits)
-// GOAL: Maximum concurrent load to demonstrate H3 superiority
-const NUM_USERS = parseInt(__ENV.NUM_USERS || '100');
-const NUM_DRIVERS = parseInt(__ENV.NUM_DRIVERS || '100');
-const DURATION = __ENV.DURATION || '10m';
-
 // HIGH-DENSITY TESTING: Force drivers and users to spawn in same area for matching
-// Ho Chi Minh City center - ensures high probability of driver-user matches
-const CENTRAL_HCMC = { latitude: 10.762622, longitude: 106.660172 };
-const SPAWN_RADIUS = 0.02; // ~2km radius - ensures drivers are within 5km search radius
+// Tan Son Nhat Airport - ensures high probability of driver-user matches
+// CRITICAL: Must match seed-ghost-drivers.js location for cluster bomb scenario
+const CENTRAL_HCMC = { latitude: 10.8185, longitude: 106.6588 }; // Tan Son Nhat Airport
+const SPAWN_RADIUS = 0.005; // ~0.5km radius - SAME as seeded drivers for cluster bomb test
 
 export const options = {
   // Setup configuration
@@ -196,9 +213,17 @@ function logPhase(scenario, phase, details = '') {
 }
 
 export function setup() {
+  // Check if ghost users are enabled
+  const useGhost = __ENV.USE_GHOST_USERS === 'true';
+
   console.log('\n' + '='.repeat(80));
   console.log('HTTP PERFORMANCE TEST - AGGRESSIVE MODE');
   console.log('='.repeat(80));
+  console.log(
+    `Mode: ${
+      useGhost ? 'GHOST USERS (Clerk Bypass)' : 'REAL USERS (Clerk API)'
+    }`
+  );
   console.log(`Users: ${NUM_USERS} (HTTP trip requests)`);
   console.log(`Drivers: ${NUM_DRIVERS} (HTTP location updates @ 2Hz)`);
   console.log(`Duration: ${DURATION}`);
@@ -210,12 +235,15 @@ export function setup() {
   // ========================================================================
   // USERS: Try to reuse existing test users, create only if needed
   // ========================================================================
-  console.log(`Setting up ${NUM_USERS} users...`);
-  console.log('  Checking for existing test users...');
+  const userType = useGhost ? 'ghost users' : 'test users';
+  console.log(`Setting up ${NUM_USERS} ${userType}...`);
+  if (!useGhost) {
+    console.log('  Checking for existing test users...');
+  }
 
   for (let i = 0; i < NUM_USERS; i++) {
     const userId = generateUserId(i);
-    const result = createUser(userId, i);
+    const result = createUser(userId, i, useGhost);
 
     if (result.success) {
       users.push(result.userId); // Use actual userId from response
@@ -245,12 +273,15 @@ export function setup() {
   // ========================================================================
   // DRIVERS: Try to reuse existing test drivers, create only if needed
   // ========================================================================
-  console.log(`\nSetting up ${NUM_DRIVERS} drivers...`);
-  console.log('  Checking for existing test drivers...');
+  const driverType = useGhost ? 'ghost drivers' : 'test drivers';
+  console.log(`\nSetting up ${NUM_DRIVERS} ${driverType}...`);
+  if (!useGhost) {
+    console.log('  Checking for existing test drivers...');
+  }
 
   for (let i = 0; i < NUM_DRIVERS; i++) {
     const username = generateDriverId(i);
-    const driverResult = createDriver(username, i);
+    const driverResult = createDriver(username, i, useGhost);
     const location = nearbyLocation(
       CENTRAL_HCMC.latitude,
       CENTRAL_HCMC.longitude,
@@ -331,14 +362,23 @@ export function setupPools(data) {
 export function userLifecycleScenario(data) {
   setupPools(data);
 
-  const currentVUs = __VU;
+  // FIX: Use scenario-specific VU count instead of global __VU
+  // __VU is global (1 to totalVUs across ALL scenarios)
+  // execution.vu.idInInstance gives us the VU's position within THIS scenario (1 to NUM_USERS)
+  const scenarioVU = execution.vu.idInInstance; // Correct VU count for this scenario
+  const globalVU = __VU; // Keep for debugging
+
   let phase = 'WARMUP (20% Load)';
-  if (currentVUs > Math.floor(NUM_USERS * 0.5)) {
-    phase = currentVUs >= NUM_USERS ? 'PEAK (100% Load)' : 'RAMP-UP (50% Load)';
+  if (scenarioVU > Math.floor(NUM_USERS * 0.5)) {
+    phase = scenarioVU >= NUM_USERS ? 'PEAK (100% Load)' : 'RAMP-UP (50% Load)';
   }
   if (__ITER > 50) phase = 'SUSTAINED LOAD';
 
-  logPhase('USER-HTTP', phase, `Active VUs: ${currentVUs}/${NUM_USERS}`);
+  logPhase(
+    'USER-HTTP',
+    phase,
+    `Scenario VUs: ${scenarioVU}/${NUM_USERS} (Global VU ID: ${globalVU})`
+  );
 
   const user = userPool.getUserInState(UserState.IDLE);
   if (!user) {
