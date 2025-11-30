@@ -1,0 +1,26 @@
+# Dockerfile.k6
+# K6 with MQTT extension
+# This allows running K6 INSIDE Docker to bypass Windows networking issues
+
+# Use official xk6 image to build k6 with MQTT extension
+FROM grafana/xk6:latest AS builder
+
+# Build k6 with Grafana's MQTT extension
+# This matches the API used in our test code (mqtt-client.js)
+# The binary will be output to /xk6/k6
+RUN xk6 build \
+    --with github.com/grafana/xk6-mqtt@latest
+
+# Runtime image
+FROM alpine:3.19
+
+# Install runtime dependencies
+RUN apk add --no-cache ca-certificates
+
+# Copy k6 binary from builder
+# xk6 outputs the binary to /xk6/k6 by default
+COPY --from=builder /xk6/k6 /usr/bin/k6
+
+WORKDIR /app
+
+ENTRYPOINT ["k6"]

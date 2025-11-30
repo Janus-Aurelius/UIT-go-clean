@@ -1,0 +1,241 @@
+# ============================================================================
+# Observability Stack - K6, Prometheus, Grafana + Mosquitto Exporter
+# ============================================================================
+# Purpose: Automated observability setup for load testing and monitoring
+#
+# Services:
+#   - Prometheus: Metrics collection and storage (receiver mode for K6)
+#   - Grafana: Visualization with auto-provisioned dashboards
+#   - K6: Load testing tool (metrics pushed to Prometheus)
+#   - Mosquitto Exporter: MQTT broker health monitoring
+#
+# Usage:
+#   1. Start the stack: docker-compose up -d
+#   2. Access Grafana: http://localhost:3001 (auto-login enabled)
+#   3. Dashboards are pre-loaded:
+#      - K6 Load Testing Performance
+#      - Mosquitto Broker Health
+#   4. Run K6 tests from ../load-tests/ folder
+#
+# Everything is provisioned automatically - no manual configuration needed!
+# ============================================================================
+
+services:
+  # Prometheus - Metrics storage with remote write receiver
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-remote-write-receiver'  # Enable K6 to push metrics
+      - '--enable-feature=native-histograms'   # Better histogram support
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - observability-net
+      - app-monitor-net  # ✅ Shared network to reach main app services
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Grafana - Visualization with auto-provisioning
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      # Auto-login for instant access (optional - remove for production)
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      # Disable telemetry
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+      # SQLite optimization to reduce locking issues
+      - GF_DATABASE_WAL=true
+      - GF_DATABASE_CACHE_MODE=shared
+      # Image Renderer configuration
+      - GF_RENDERING_SERVER_URL=http://grafana-image-renderer:8081/render
+      - GF_RENDERING_CALLBACK_URL=http://grafana:3000/
+      - GF_LOG_FILTERS=rendering:debug
+    volumes:
+      # Auto-provision datasources and dashboards
+      - ./grafana_provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana_provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana_provisioning/grafana.ini:/etc/grafana/grafana.ini:ro
+      - grafana-data:/var/lib/grafana
+    networks:
+      - observability-net
+      - app-monitor-net  # ✅ Shared network (optional for Grafana, but keeps it consistent)
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      grafana-image-renderer:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Grafana Image Renderer - Enables dashboard image export
+  grafana-image-renderer:
+    image: grafana/grafana-image-renderer:latest
+    container_name: grafana-image-renderer
+    ports:
+      - "8081:8081"
+    environment:
+      - ENABLE_METRICS=true
+      - HTTP_HOST=0.0.0.0
+      - HTTP_PORT=8081
+      - LOG_LEVEL=info
+      # Chrome/Chromium settings for better rendering
+      - BROWSER_TZ=UTC
+      - IGNORE_HTTPS_ERRORS=true
+    networks:
+      - observability-net
+    restart: unless-stopped
+
+  # Mosquitto Exporter - MQTT broker health monitoring
+  mosquitto-exporter:
+    image: sapcc/mosquitto-exporter:latest
+    container_name: mosquitto-exporter
+    environment:
+      # Point to Mosquitto broker via shared network (container name)
+      # Using the full container name from main docker-compose stack
+      - BROKER_ENDPOINT=tcp://uit-go-clean-mosquitto-1:1883
+      # Optional: Add authentication if your Mosquitto requires it
+      # - MQTT_USER=your_user
+      # - MQTT_PASS=your_pass
+    ports:
+      - "9234:9234"  # Prometheus scrape endpoint
+    networks:
+      - observability-net
+      - app-monitor-net  # ✅ Shared network to reach mosquitto
+    restart: unless-stopped
+
+  # Redis Exporter - Redis performance monitoring
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: redis-exporter
+    environment:
+      # Point to Redis via shared network (container name from main stack)
+      - REDIS_ADDR=redis:6379
+      # Optional: Add password if Redis requires authentication
+      # - REDIS_PASSWORD=your_redis_password
+    ports:
+      - "9121:9121"  # Prometheus scrape endpoint
+    networks:
+      - observability-net
+      - app-monitor-net  # ✅ Shared network to reach Redis
+    restart: unless-stopped
+    command:
+      - '--redis.addr=redis:6379'
+      - '--web.listen-address=:9121'
+      - '--web.telemetry-path=/metrics'
+
+  # K6 - Load testing (example service - can be run separately)
+  # Uncomment to run K6 tests automatically on startup
+  # k6:
+  #   image: grafana/k6:latest
+  #   container_name: k6-runner
+  #   environment:
+  #     - K6_PROMETHEUS_RW_SERVER_URL=http://prometheus:9090/api/v1/write
+  #     - K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM=true
+  #   volumes:
+  #     - ../load-tests:/scripts
+  #   command: run --out experimental-prometheus-rw /scripts/smoke-test.js
+  #   networks:
+  #     - observability-net
+  #   depends_on:
+  #     prometheus:
+  #       condition: service_healthy
+
+  # cAdvisor - Container resource monitoring
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    devices:
+      - /dev/kmsg
+    networks:
+      - observability-net
+      - app-monitor-net  # Monitor main app containers
+    restart: unless-stopped
+    command:
+      - '--housekeeping_interval=10s'
+      - '--docker_only=true'
+      - '--store_container_labels=false'
+
+networks:
+  observability-net:
+    driver: bridge
+  app-monitor-net:
+    external: true  # ✅ Shared network with main application stack
+
+volumes:
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+# ============================================================================
+# USAGE INSTRUCTIONS
+# ============================================================================
+#
+# 1. START THE OBSERVABILITY STACK:
+#    cd observability
+#    docker-compose up -d
+#
+# 2. ACCESS GRAFANA:
+#    Open http://localhost:3001
+#    Auto-login is enabled (admin/admin if prompted)
+#
+# 3. VIEW DASHBOARDS:
+#    - K6 Load Testing Performance (ID: 19665)
+#    - Mosquitto Broker Health (custom)
+#
+# 4. RUN K6 TESTS (from project root):
+#    Option A - Manual run with metrics push:
+#    docker run --rm -i --network observability_observability-net \
+#      -e K6_PROMETHEUS_RW_SERVER_URL=http://prometheus:9090/api/v1/write \
+#      -e K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM=true \
+#      -v ${PWD}/load-tests:/scripts \
+#      grafana/k6:latest run --out experimental-prometheus-rw /scripts/smoke-test.js
+#
+#    Option B - Run from host with output to Prometheus:
+#    Set environment variables and run k6 locally
+#
+# 5. VIEW METRICS IN REAL-TIME:
+#    - Prometheus: http://localhost:9090
+#    - Grafana: http://localhost:3001
+#    - Mosquitto Exporter: http://localhost:9234/metrics
+#
+# 6. STOP THE STACK:
+#    docker-compose down
+#
+#    To remove data volumes too:
+#    docker-compose down -v
+#
+# ============================================================================

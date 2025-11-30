@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Param, Body } from '@nestjs/common';
+import { Controller, Post, Get, Param, Body, Query, Patch } from '@nestjs/common';
 import { CreateTripRequest } from '@uit-go/shared-types';
 import { TripService } from './trip.service';
 //import { CurrentUser } from '../../common/decorator/current-user.decorator';
@@ -23,9 +23,32 @@ export class TripController {
     return this.tripService.createTrip(data);
   }
 
+  @Get()
+  getTrips(
+    @Query('userId') userId?: string,
+    @Query('driverId') driverId?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number
+  ) {
+    return this.tripService.getTrips({ userId, driverId, status, page, limit });
+  }
+
   @Get(':id')
   getTripById(@Param('id') id: string) {
     return this.tripService.getTripById(id);
+  }
+
+  @Patch(':id')
+  updateTrip(
+    @Param('id') id: string,
+    @Body()
+    data: {
+      destinationLatitude?: number;
+      destinationLongitude?: number;
+    }
+  ) {
+    return this.tripService.updateTrip({ id, ...data });
   }
 
   @Post(':id/cancel')

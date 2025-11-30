@@ -1,0 +1,29 @@
+{
+  "name": "uit-go-observability",
+  "version": "1.0.0",
+  "description": "Observability stack and performance testing utilities for UIT-GO",
+  "type": "module",
+  "scripts": {
+    "seed-ghosts": "node seed-ghost-drivers.js",
+    "seed-ghosts:small": "node seed-ghost-drivers.js --count=10000",
+    "seed-ghosts:medium": "node seed-ghost-drivers.js --count=50000",
+    "seed-ghosts:large": "node seed-ghost-drivers.js --count=100000",
+    "clear-ghosts": "node seed-ghost-drivers.js --clear",
+    "stats": "node seed-ghost-drivers.js --stats",
+    "cleanup": "pwsh -File ./cleanup-test.ps1",
+    "cleanup:keep-ghosts": "pwsh -File ./cleanup-test.ps1 -KeepGhosts",
+    "cleanup:nuclear": "pwsh -File ./cleanup-test.ps1 -FlushRedis",
+    "help": "node seed-ghost-drivers.js --help"
+  },
+  "keywords": [
+    "observability",
+    "performance-testing",
+    "redis",
+    "ghost-drivers"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "redis": "^4.6.0"
+  }
+}

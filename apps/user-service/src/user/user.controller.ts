@@ -19,4 +19,15 @@ export class UserController {
 
     return this.userProfileService.findOne(request.id);
   }
+
+  @GrpcMethod(GRPC_SERVICE.USER.NAME, GRPC_SERVICE.USER.METHODS.LIST)
+  getUsers(request: { page?: number; limit?: number }) {
+    console.log('Processing GetUsers request');
+    return this.userProfileService.findAll(request);
+  }
+
+  @GrpcMethod(GRPC_SERVICE.USER.NAME, GRPC_SERVICE.USER.METHODS.UPDATE)
+  updateUserProfile(request: any) {
+    return this.userProfileService.update(request);
+  }
 }

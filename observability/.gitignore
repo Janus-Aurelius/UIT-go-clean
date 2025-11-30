@@ -1,0 +1,24 @@
+# Docker volumes and data
+prometheus-data/
+grafana-data/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.bak
+*~
+/generated/prisma
+# Screenshots (optional - uncomment if you don't want to commit screenshots)
+# *.png
+# *.jpg
+# *.jpeg

@@ -47,6 +47,9 @@ message GetDriverRequest {
 service DriverService {
   rpc CreateDriver(CreateDriverRequest) returns (DriverProfileResponse);
   rpc GetDriver(GetDriverRequest) returns (DriverProfileResponse);
+  rpc GetDrivers(GetDriversRequest) returns (DriversListResponse);
+  rpc UpdateDriverProfile(UpdateDriverProfileRequest) returns (DriverProfileResponse);
+  rpc DeleteDriver(GetDriverRequest) returns (DeleteDriverResponse);
 
   rpc UpdateLocation(UpdateLocationRequest) returns (DriverProfileResponse);
   rpc UpdateStatus(UpdateStatusRequest) returns (DriverProfileResponse);
@@ -83,5 +86,33 @@ message UpdateStatusRequest {
   DriverStatus status = 2;
 }
 
+message GetDriversRequest {
+  int32 page = 1;
+  int32 limit = 2;
+  optional DriverStatus status = 3;
+}
+
+message DriversListResponse {
+  repeated DriverProfileResponse drivers = 1;
+  int32 total = 2;
+  int32 page = 3;
+  int32 limit = 4;
+}
+
+message UpdateDriverProfileRequest {
+  string userId = 1;
+  optional string name = 2;
+  optional string email = 3;
+  optional string phone = 4;
+  optional VehicleType vehicleType = 5;
+  optional string licensePlate = 6;
+  optional string licenseNumber = 7;
+  optional double balance = 8;
+}
+
+message DeleteDriverResponse {
+  bool success = 1;
+  string message = 2;
+}
 
 message EmptyResponse {}

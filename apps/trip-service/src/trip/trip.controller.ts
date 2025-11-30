@@ -23,7 +23,7 @@ export class TripController {
     return await this.tripService.createTrip(data);
   }
 
-  @GrpcMethod(GRPC_SERVICE.TRIP.NAME, GRPC_SERVICE.TRIP.METHODS.GET_BY_ID)
+  @GrpcMethod(GRPC_SERVICE.TRIP.NAME, GRPC_SERVICE.TRIP.METHODS.DETAIL)
   getTripById(data: TripId) {
     return this.tripService.getTripById(data.id);
   }
@@ -46,5 +46,25 @@ export class TripController {
   @GrpcMethod(GRPC_SERVICE.TRIP.NAME, GRPC_SERVICE.TRIP.METHODS.COMPLETE)
   completeTrip(data: TripId) {
     return this.tripService.completeTrip(data.id);
+  }
+
+  @GrpcMethod(GRPC_SERVICE.TRIP.NAME, GRPC_SERVICE.TRIP.METHODS.LIST)
+  getTrips(data: {
+    userId?: string;
+    driverId?: string;
+    status?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    return this.tripService.getTrips(data);
+  }
+
+  @GrpcMethod(GRPC_SERVICE.TRIP.NAME, GRPC_SERVICE.TRIP.METHODS.UPDATE)
+  updateTrip(data: {
+    id: string;
+    destinationLatitude?: number;
+    destinationLongitude?: number;
+  }) {
+    return this.tripService.updateTrip(data);
   }
 }

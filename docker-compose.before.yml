@@ -1,0 +1,251 @@
+# ============================================================================
+# docker-compose.before.yml - Phase 2: "Before" Scenario (Baseline)
+# ============================================================================
+# Purpose: Demonstrate that a standard Synchronous Architecture collapses
+#          under "Hyperscale" conditions with constrained resources.
+#
+# Architecture: Synchronous gRPC/HTTP calls (API Gateway waits for responses)
+# Deployment: Single replica per service (vertical dependency)
+# Resources: Heavily constrained (0.25 CPU per container = 25% of a core)
+# Logging: DEBUG level (simulates I/O blocking)
+#
+# Expected Performance Under Load:
+# - Throughput: ~50-80 req/s
+# - Latency: > 2000ms (frequent timeouts)
+# - Error Rate: High (>5%)
+# - Failure Mode: Cascading failures, service starvation
+# ============================================================================
+
+services:
+  # Redis - Minimal resources for geospatial queries
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - uit-go-network
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.125'
+          memory: 128M
+    mem_swappiness: 0
+    command: redis-server --loglevel debug --maxmemory 200mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # API Gateway - Entry point with minimal resources
+  api-gateway:
+    build:
+      context: .
+      dockerfile: apps/api-gateway/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - USER_GRPC_URL=user-service:50051
+      - DRIVER_GRPC_URL=driver-service:50052
+      - TRIP_GRPC_URL=trip-service:50053
+      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY:-your-clerk-secret-key}
+      - NODE_ENV=production
+      - LOG_LEVEL=debug
+    depends_on:
+      - redis
+      - user-service
+      - driver-service
+      - trip-service
+    networks:
+      - uit-go-network
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 512M
+        reservations:
+          cpus: '0.125'
+          memory: 256M
+    mem_swappiness: 0
+    restart: unless-stopped
+
+  # User Service - Constrained resources
+  user-service:
+    build:
+      context: .
+      dockerfile: apps/user-service/Dockerfile
+    environment:
+      - USER_GRPC_URL=0.0.0.0:50051
+      - DRIVER_GRPC_URL=driver-service:50052
+      - TRIP_GRPC_URL=trip-service:50053
+      - NODE_ENV=production
+      - LOG_LEVEL=debug
+    env_file:
+      - ./apps/user-service/.env
+    ports:
+      - "50051:50051"
+    networks:
+      - uit-go-network
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 384M
+        reservations:
+          cpus: '0.125'
+          memory: 192M
+    mem_swappiness: 0
+    restart: unless-stopped
+
+  # Driver Service - Constrained resources (handles geospatial queries)
+  driver-service:
+    build:
+      context: .
+      dockerfile: apps/driver-service/Dockerfile
+    environment:
+      - DRIVER_GRPC_URL=0.0.0.0:50052
+      - REDIS_URL=redis://redis:6379
+      - USER_GRPC_URL=user-service:50051
+      - TRIP_GRPC_URL=trip-service:50053
+      - NODE_ENV=production
+      - LOG_LEVEL=debug
+    env_file:
+      - ./apps/driver-service/.env
+    ports:
+      - "50052:50052"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - uit-go-network
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 512M
+        reservations:
+          cpus: '0.125'
+          memory: 256M
+    mem_swappiness: 0
+    restart: unless-stopped
+
+  # Trip Service - Constrained resources (orchestrates trip lifecycle)
+  # KEY BOTTLENECK: Makes synchronous calls to Driver and User services
+  trip-service:
+    build:
+      context: .
+      dockerfile: apps/trip-service/Dockerfile
+    environment:
+      - TRIP_GRPC_URL=0.0.0.0:50053
+      - USER_GRPC_URL=user-service:50051
+      - DRIVER_GRPC_URL=driver-service:50052
+      - NODE_ENV=production
+      - LOG_LEVEL=debug
+    env_file:
+      - ./apps/trip-service/.env
+    ports:
+      - "50053:50053"
+    networks:
+      - uit-go-network
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 512M
+        reservations:
+          cpus: '0.125'
+          memory: 256M
+    mem_swappiness: 0
+    restart: unless-stopped
+
+networks:
+  uit-go-network:
+    driver: bridge
+
+# ============================================================================
+# RESOURCE ALLOCATION SUMMARY (Constrained "Before" Scenario)
+# ============================================================================
+# Service          | CPU Limit | Memory Limit | Replicas
+# -----------------|-----------|--------------|----------
+# redis            | 0.25      | 256M         | 1
+# api-gateway      | 0.25      | 512M         | 1
+# user-service     | 0.25      | 384M         | 1
+# driver-service   | 0.25      | 512M         | 1
+# trip-service     | 0.25      | 512M         | 1
+# -----------------|-----------|--------------|----------
+# TOTAL            | 1.25 CPUs | 2176M (~2.1GB)| 5 containers
+#
+# NOTE: This is intentionally under-provisioned to demonstrate failure modes
+# ============================================================================
+
+# ============================================================================
+# HOW TO USE THIS FILE
+# ============================================================================
+# 1. Start the "Before" scenario:
+#    docker-compose -f docker-compose.before.yml up --build -d
+#
+# 2. Wait for all services to be healthy:
+#    docker-compose -f docker-compose.before.yml ps
+#
+# 3. Run baseline load test:
+#    k6 run load-tests/baseline-test.js
+#
+# 4. Monitor resource usage:
+#    docker stats
+#
+# 5. Stop and clean up:
+#    docker-compose -f docker-compose.before.yml down -v
+# ============================================================================
+
+# ============================================================================
+# KEY ARCHITECTURAL FLAWS (Synchronous Design)
+# ============================================================================
+# 1. API Gateway → Trip Service (SYNC CALL - BLOCKS)
+#    - Gateway thread waits for Trip Service response
+#    - Under load: Gateway threads exhausted → 503 errors
+#
+# 2. Trip Service → Driver Service (SYNC CALL - BLOCKS)
+#    - Trip Service calls searchNearbyDrivers synchronously
+#    - Trip Service calls updateStatus synchronously
+#    - Under load: Trip threads wait → cascading delays
+#
+# 3. Trip Service → User Service (SYNC CALL - BLOCKS)
+#    - Trip Service calls getUser synchronously
+#    - Under load: Additional blocking I/O
+#
+# 4. Single Replica + 0.25 CPU = STARVATION
+#    - Only 25% of one CPU core available per service
+#    - CPU starvation → slow processing → queue buildup
+#    - Memory pressure → garbage collection pauses
+#
+# 5. DEBUG Logging = I/O BLOCKING
+#    - Excessive console.log() calls
+#    - Disk I/O blocks event loop
+#    - Amplifies latency under load
+# ============================================================================
+
+# ============================================================================
+# EXPECTED FAILURE MODES
+# ============================================================================
+# At ~50-80 req/s:
+# - Latency spikes above 2000ms (timeout threshold)
+# - API Gateway returns 503 Service Unavailable
+# - gRPC DEADLINE_EXCEEDED errors
+# - Trip creation fails → users see errors
+# - Driver assignment timeouts
+# - Redis connection pool exhaustion (if misconfigured)
+#
+# Observable in Metrics:
+# - CPU utilization: 100% (throttled)
+# - Memory usage: Near limit (OOM risk)
+# - Request queue depth: Growing unbounded
+# - Error rate: >5% (unacceptable for production)
+# ============================================================================

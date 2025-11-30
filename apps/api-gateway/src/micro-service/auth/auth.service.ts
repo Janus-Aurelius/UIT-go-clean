@@ -1,8 +1,12 @@
 import clerkClient from '@clerk/clerk-sdk-node';
 import { Inject, Injectable } from '@nestjs/common';
 import { ClientGrpc } from '@nestjs/microservices';
-import { DriverServiceClient, GRPC_SERVICE, UserServiceClient } from '@uit-go/shared-client';
-import { VehicleTypeEnum } from '@uit-go/shared-types';
+import {
+  DriverServiceClient,
+  GRPC_SERVICE,
+  UserServiceClient,
+} from '@uit-go/shared-client';
+import { VehicleTypeEnum, DriverProfileResponse } from '@uit-go/shared-types';
 import { firstValueFrom } from 'rxjs';
 
 @Injectable()
@@ -31,6 +35,25 @@ export class AuthService {
     phone: string;
     balance: number;
   }) {
+    // Ghost user detection - bypass Clerk and database for load testing
+    const isGhost =
+      user.email?.startsWith('ghost:') || user.username?.startsWith('ghost:');
+
+    if (isGhost && process.env.ALLOW_GHOST_USERS === 'true') {
+      // Generate synthetic ghost user ID
+      const ghostId = `ghost:user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      return {
+        userId: ghostId,
+        username: user.username || ghostId,
+        email: user.email || `${ghostId}@ghost.test`,
+        fullName: user.fullName || 'Ghost User',
+        phone: user.phone || '+1000000000',
+        balance: user.balance || 0.0,
+      };
+    }
+
+    // Real users: existing Clerk + database flow
     const clerk = await clerkClient.users.createUser({
       emailAddress: [user.email],
       username: user.username,
@@ -67,14 +90,35 @@ export class AuthService {
     licensePlate: string;
     licenseNumber: string;
   }) {
+    // Ghost driver detection - bypass Clerk and database for load testing
+    const isGhost =
+      user.email?.startsWith('ghost:') || user.username?.startsWith('ghost:');
+
+    if (isGhost && process.env.ALLOW_GHOST_USERS === 'true') {
+      // Generate synthetic ghost driver ID
+      const ghostId = `ghost:${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      return {
+        userId: ghostId,
+        username: user.username || ghostId,
+        email: user.email || `${ghostId}@ghost.test`,
+        name: user.name || 'Ghost Driver',
+        phone: user.phone || '+1000000000',
+        vehicleType: user.vehicleType || VehicleTypeEnum.MOTOBIKE,
+        licensePlate: user.licensePlate || 'GHOST-001',
+        licenseNumber: user.licenseNumber || 'DL-GHOST',
+      };
+    }
+
+    // Real drivers: existing Clerk + database flow
     const clerk = await clerkClient.users.createUser({
       emailAddress: [user.email],
       username: user.username,
       password: user.password,
     });
 
-    const profile = await firstValueFrom(
-      this.driverService.createDriver({
+    const profile = (await firstValueFrom(
+      this.driverService.CreateDriver({
         name: user.name,
         phone: user.phone,
         email: user.email,
@@ -83,7 +127,7 @@ export class AuthService {
         licensePlate: user.licensePlate,
         licenseNumber: user.licenseNumber,
       })
-    );
+    )) as DriverProfileResponse;
 
     return {
       userId: clerk.id,

@@ -1,0 +1,61 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'uit-go-monitor'
+
+# Alertmanager configuration (optional)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# Load rules once and periodically evaluate them
+rule_files: []
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          group: 'observability'
+
+  # K6 metrics (when K6 runs with --out experimental-prometheus-rw)
+  - job_name: 'k6'
+    static_configs:
+      - targets: [] # K6 pushes metrics to Prometheus remote write endpoint
+        labels:
+          group: 'load-testing'
+
+  # Mosquitto MQTT Broker metrics
+  - job_name: 'mosquitto'
+    static_configs:
+      - targets: ['mosquitto-exporter:9234']
+        labels:
+          group: 'mqtt-broker'
+          service: 'mosquitto'
+
+  # Redis metrics (THE BOTTLENECK for driver matching algorithm)
+  - job_name: 'redis'
+    scrape_interval: 5s  # Scrape more frequently to catch bottleneck behavior
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          group: 'database'
+          service: 'redis'
+          component: 'driver-matching-bottleneck'
+
+  # cAdvisor - Container resource monitoring
+  - job_name: 'cadvisor'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['cadvisor:8080']
+        labels:
+          group: 'infrastructure'
+          service: 'cadvisor'
+# Note: Remote write RECEIVER is enabled via Docker command flag:
+#       --web.enable-remote-write-receiver
+# This allows K6 to PUSH metrics to Prometheus at http://prometheus:9090/api/v1/write
+# We do NOT need a remote_write section here (that would make Prometheus SEND data elsewhere)

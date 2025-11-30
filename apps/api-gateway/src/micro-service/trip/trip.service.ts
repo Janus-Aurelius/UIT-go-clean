@@ -49,4 +49,22 @@ export class TripService implements OnModuleInit {
     const tripId: TripId = { id };
     return this.tripService.completeTrip(tripId);
   }
+
+  getTrips(request: {
+    userId?: string;
+    driverId?: string;
+    status?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    return this.tripService.getTrips(request);
+  }
+
+  updateTrip(request: {
+    id: string;
+    destinationLatitude?: number;
+    destinationLongitude?: number;
+  }) {
+    return this.tripService.updateTrip(request);
+  }
 }

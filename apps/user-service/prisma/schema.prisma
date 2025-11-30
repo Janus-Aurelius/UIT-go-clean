@@ -21,4 +21,6 @@ model UserProfile {
   phone    String  @db.VarChar(15)
   email    String  @db.VarChar(255)
   balance  Decimal
+
+  @@map("UserProfile")
 }

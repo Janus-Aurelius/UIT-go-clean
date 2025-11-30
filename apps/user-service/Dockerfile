@@ -31,7 +31,12 @@ EXPOSE 50051
 
 # Create a startup script to handle database migrations
 RUN echo '#!/bin/sh' > start.sh && \
-    echo 'npx prisma db push --schema=./prisma/schema.prisma --skip-generate' >> start.sh && \
+    echo 'set -e' >> start.sh && \
+    echo 'set -x' >> start.sh && \
+    echo 'ls -la /app' >> start.sh && \
+    echo 'echo "Running migrations..."' >> start.sh && \
+    echo 'npx prisma db push --schema=./prisma/schema.prisma --skip-generate --accept-data-loss' >> start.sh && \
+    echo 'echo "Starting application..."' >> start.sh && \
     echo 'node main.js' >> start.sh && \
     chmod +x start.sh
 
